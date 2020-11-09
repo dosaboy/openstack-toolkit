@@ -30,8 +30,7 @@ while read -r lb; do
     done &
 done < $SCRATCH_AREA/loadbalancer_list
 wait
-# get listeners
-# there may be > 1 so need to adapt for this
+# get listeners and members
 while read -r lb; do
     for pool in `ls $SCRATCH_AREA/$lb/pools`; do
         mkdir -p $SCRATCH_AREA/$lb/listeners
