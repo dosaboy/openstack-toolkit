@@ -74,11 +74,22 @@ wait
 
 echo ""
 
+get_security_group ()
+{
+    local sg=$1
+    mkdir -p $SCRATCH_AREA/security_groups/$sg/rules
+    for rule in `openstack security group rule list $sg -c ID -f value`; do
+        openstack security group rule show $rule > $SCRATCH_AREA/security_groups/$sg/rules/$rule &
+    done
+    wait
+}
+
 # Run checks
 echo "INFO: checking loadbalancers '`cat $SCRATCH_AREA/loadbalancer_list| tr -s '\n' ' '| sed -r 's/\s+$//g'`'"
 while read -r lb; do
     (
     mkdir -p $SCRATCH_AREA/results/$lb
+    mkdir -p $SCRATCH_AREA/security_groups
     for pool in `ls $SCRATCH_AREA/$lb/pools`; do
         for listener in `ls $SCRATCH_AREA/$lb/listeners`; do
             listener_port=`cat $SCRATCH_AREA/$lb/listeners/$listener/port`
@@ -88,14 +99,18 @@ while read -r lb; do
                 path=`egrep -lr "$address$" $SCRATCH_AREA/ports`
                 port=$(basename `dirname $path`)
                 for sg in `openstack port show -c security_group_ids -f value $port| egrep -o "[[:alnum:]\-]+"`; do
-                    mkdir $SCRATCH_AREA/sgrules
-                    openstack security group rule list $sg -c "Port Range" -f value > $SCRATCH_AREA/sgrules/$sg
+                    sg_path=$SCRATCH_AREA/security_groups/$sg
+                    [ -d $sg_path ] || get_security_group $sg
                     found=false
-                    while read -r rule; do
+                    for rule in `find $sg_path/rules/ -type f`; do
                         # THIS IS THE ACTUAL CHECK - ADD MORE AS NEEDED #
-                        echo "$rule"| grep -q "$listener_port:$listener_port" || continue
+                        max_actual=`awk "\\$2==\"port_range_min\" {print \\$4}" $rule`
+                        min_actual=`awk "\\$2==\"port_range_max\" {print \\$4}" $rule`
+                        [[ "${min_actual}:${max_actual}" == "${listener_port}:${listener_port}" ]] || continue
+                        direction=`awk "\\$2==\"direction\" {print \\$4}" $rule`
+                        [[ "$direction" == "ingress" ]] || continue
                         found=true
-                    done < $SCRATCH_AREA/sgrules/$sg
+                    done
                     if ! $found; then
                         error_path=$SCRATCH_AREA/results/$lb/errors/$error_idx
                         mkdir -p $error_path
