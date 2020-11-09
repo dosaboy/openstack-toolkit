@@ -103,6 +103,9 @@ while read -r lb; do
                         echo $member > $error_path/member
                         echo $port > $error_path/backend_vm_port
                         echo $sg > $error_path/security_group
+                        for entry in `ls $error_path`; do
+                            echo " - $entry: `cat $error_path/$entry`" >> $error_path/details
+                        done
                         ((error_idx+=1))
                     fi
                 done
@@ -113,14 +116,13 @@ while read -r lb; do
 done < $SCRATCH_AREA/loadbalancer_list
 wait
 
-ls $SCRATCH_AREA/results/*/errors &>/dev/null && echo ""
 for errors in `find $SCRATCH_AREA/results -name errors`; do
     lb=$(basename `dirname $errors`)
     for error in `ls $errors`; do
         port=`cat $errors/$error/protocol_port`
-        echo "WARNING: loadbalancer $lb has member(s) with security groups that don't have required ports open: $port"
+        echo -e "\nWARNING: loadbalancer $lb has member(s) with security groups that don't have required ports open: $port"
         echo "Details:"
-        ( cd $errors/$error; grep . *; )
+        cat $errors/$error/details
     done
 done
 ls $SCRATCH_AREA/results/*/errors &>/dev/null && echo ""
