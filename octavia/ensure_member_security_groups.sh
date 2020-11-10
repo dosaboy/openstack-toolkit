@@ -151,14 +151,15 @@ while read -r lb; do
                     found=false
                     for rule in `find $SCRATCH_AREA/security_groups/$sg/rules/ -type f`; do
                         # THIS IS THE ACTUAL CHECK - ADD MORE AS NEEDED #
-                        port_range_max=`awk "\\$2==\"port_range_min\" {print \\$4}" $rule`
-                        port_range_min=`awk "\\$2==\"port_range_max\" {print \\$4}" $rule`
+                        port_range_max=`awk "\\$2==\"port_range_max\" {print \\$4}" $rule`
+                        port_range_min=`awk "\\$2==\"port_range_min\" {print \\$4}" $rule`
                         remote_ip_prefix=`awk "\\$2==\"remote_ip_prefix\" {print \\$4}" $rule`
                         direction=`awk "\\$2==\"direction\" {print \\$4}" $rule`
                         subnet_cidr=`get_subnet_cidr $m_subnet_id`
 
                         # ensure port range
-                        [[ "${port_range_min}:${port_range_max}" == "${listener_port}:${listener_port}" ]] || continue
+                        [[ "$port_range_min" == "None" ]] || [[ "$port_range_max" == "None" ]] && continue
+                        ((listener_port>=port_range_min)) && ((listener_port<=port_range_max)) || continue
                         # ensure ingress
                         [[ "$direction" == "ingress" ]] || continue
                         # ensure correct network range
@@ -169,14 +170,18 @@ while read -r lb; do
                     done
                     if ! $found; then
                         error_path=$SCRATCH_AREA/results/$lb/errors/$error_idx
-                        mkdir -p $error_path
-                        echo "$listener_port" > $error_path/protocol_port
-                        echo $member_uuid > $error_path/member
-                        echo $port_uuid > $error_path/backend_vm_port
-                        echo $subnet_cidr > $error_path/member_subnet_cidr
-                        echo $sg > $error_path/security_group
-                        for entry in `ls $error_path`; do
-                            echo " - $entry: `cat $error_path/$entry`" >> $error_path/details
+                        mkdir -p $error_path/{security_group,loadbalancer}
+                        echo "$sg" > $error_path/security_group/id
+                        echo "$listener_port" > $error_path/loadbalancer/protocol_port
+                        echo "$member_uuid" > $error_path/loadbalancer/member_id
+                        echo "$port_uuid" > $error_path/loadbalancer/member_vm_port
+                        echo "$subnet_cidr" > $error_path/loadbalancer/member_vm_subnet_cidr
+
+                        for section in `ls $error_path`; do
+                            echo "  $section:" >> $error_path/details
+                            for entry in `ls $error_path/$section`; do
+                                echo "   - $entry: `cat $error_path/$section/$entry`" >> $error_path/details
+                            done
                         done
                         ((error_idx+=1))
                     fi
@@ -191,7 +196,7 @@ wait
 for errors in `find $SCRATCH_AREA/results -name errors`; do
     lb=$(basename `dirname $errors`)
     for error in `ls $errors`; do
-        port=`cat $errors/$error/protocol_port`
+        port=`cat $errors/$error/loadbalancer/protocol_port`
         echo -e "\nWARNING: loadbalancer $lb has member(s) with security groups that don't have required ports open: $port"
         echo "Details:"
         cat $errors/$error/details
