@@ -178,9 +178,9 @@ while read -r lb; do
                         echo "$subnet_cidr" > $error_path/loadbalancer/member_vm_subnet_cidr
 
                         for section in `ls $error_path`; do
-                            echo "  $section:" >> $error_path/details
+                            echo "$section:" >> $error_path/details
                             for entry in `ls $error_path/$section`; do
-                                echo "   - $entry: `cat $error_path/$section/$entry`" >> $error_path/details
+                                echo " - $entry: `cat $error_path/$section/$entry`" >> $error_path/details
                             done
                         done
                         ((error_idx+=1))
@@ -197,8 +197,7 @@ for errors in `find $SCRATCH_AREA/results -name errors`; do
     lb=$(basename `dirname $errors`)
     for error in `ls $errors`; do
         port=`cat $errors/$error/loadbalancer/protocol_port`
-        echo -e "\nWARNING: loadbalancer $lb has member(s) with security groups that don't have required ports open: $port"
-        echo "Details:"
+        echo -e "\nWARNING: loadbalancer $lb has member(s) with security group(s) with insufficient rules:"
         cat $errors/$error/details
     done
 done
