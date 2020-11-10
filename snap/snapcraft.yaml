@@ -1,0 +1,39 @@
+name: openstack-toolkit
+version: '1.0'
+summary: Toolkit for debugging Openstack
+description:
+  Set of tools to help debugging Openstack problems.
+confinement: strict 
+grade: stable
+base: core18
+environment:
+  TMPDIR: $SNAP_COMMON/tmp
+
+apps:
+  octavia:
+    command: octavia/ensure_member_security_groups.sh
+    plugs: [home, network]
+parts:
+  octavia-checks:
+    source: .
+    plugin: dump
+    stage-packages:
+      - coreutils
+      - bsdmainutils
+      - ipcalc
+      - jq
+  openstackclients:
+    plugin: python
+    python-version: python3
+    python-packages:
+      - python-openstackclient
+      - python-octaviaclient
+    constraints: https://raw.githubusercontent.com/openstack/requirements/stable/ussuri/upper-constraints.txt
+    build-packages:
+      - libffi-dev
+      - libssl-dev
+      - libxml2-dev
+      - libxslt1-dev
+      - pkg-config
+      - gcc
+
