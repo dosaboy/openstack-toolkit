@@ -68,6 +68,7 @@ while read -r lb; do
             echo "${listener_info[0]}" > $SCRATCH_AREA/$lb/listeners/$listener/protocol
             echo "${listener_info[1]}" > $SCRATCH_AREA/$lb/listeners/$listener/port
         done &
+        mkdir -p $SCRATCH_AREA/$lb/pools/$pool/members
         for member in `openstack loadbalancer member list -c id -f value $pool`; do
             mkdir -p $SCRATCH_AREA/$lb/pools/$pool/members/$member
             readarray -t member_info<<<"`openstack loadbalancer member show -c address -c subnet_id -f value $pool $member`"
