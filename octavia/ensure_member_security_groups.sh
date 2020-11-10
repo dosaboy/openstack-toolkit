@@ -154,13 +154,14 @@ while read -r lb; do
                         port_range_min=`awk "\\$2==\"port_range_max\" {print \\$4}" $rule`
                         remote_ip_prefix=`awk "\\$2==\"remote_ip_prefix\" {print \\$4}" $rule`
                         direction=`awk "\\$2==\"direction\" {print \\$4}" $rule`
+                        subnet_cidr=`get_subnet_cidr $m_subnet_id`
 
                         # ensure port range
                         [[ "${port_range_min}:${port_range_max}" == "${listener_port}:${listener_port}" ]] || continue
                         # ensure ingress
                         [[ "$direction" == "ingress" ]] || continue
                         # ensure correct network range
-                        [[ "$remote_ip_prefix" == "$(get_subnet_cidr `cat $subnet_id_path`)" ]] || continue
+                        [[ "$remote_ip_prefix" == "$subnet_cidr" ]] || continue
 
                         found=true
                         break
@@ -171,6 +172,7 @@ while read -r lb; do
                         echo "$listener_port" > $error_path/protocol_port
                         echo $member_uuid > $error_path/member
                         echo $port_uuid > $error_path/backend_vm_port
+                        echo $subnet_cidr > $error_path/member_subnet_cidr
                         echo $sg > $error_path/security_group
                         for entry in `ls $error_path`; do
                             echo " - $entry: `cat $error_path/$entry`" >> $error_path/details
