@@ -6,6 +6,16 @@
 SCRATCH_AREA=`mktemp -d`
 LOADBALANCER=${1:-}
 
+. `dirname $0`/openstack_client
+
+echo "INFO: fetching token"
+TOKEN=`openstack token issue| awk '$2=="id" {print $4}'`
+AUTH_URL=`echo $OS_AUTH_URL| sed 's/5000/35357/g'`
+neutron_ep=`get_endpoint neutron`
+nova_ep=`get_endpoint nova`
+octavia_ep=`get_endpoint octavia`
+
+
 cleanup ()
 {
     rm -rf $SCRATCH_AREA
@@ -18,62 +28,70 @@ if [ -z "${OS_AUTH_URL:-}" ]; then
     source $openrc_path
 fi
 
-mkdir -p $SCRATCH_AREA/results
+mkdir -p $SCRATCH_AREA/{results,ports,loadbalancers,pools,listeners}
 
 echo -n "INFO: pre-fetching information..."
 
 # Get all ports
 echo -n "[ports]"
-openstack port list -c ID -c fixed_ips -f value > $SCRATCH_AREA/port_list &
+openstack_port_list > $SCRATCH_AREA/ports.json &
 
 # Get all LBs and allow single loadbalancer override
 echo -n "[loadbalancers]"
 if [ -n "$LOADBALANCER" ]; then
     echo "$LOADBALANCER" > $SCRATCH_AREA/loadbalancer_list
 else
-    openstack loadbalancer list -c id -f value > $SCRATCH_AREA/loadbalancer_list &
+    openstack_loadbalancer_list > $SCRATCH_AREA/loadbalancers.json &
 fi
-wait
 
+echo -n "[listeners]"
+openstack_loadbalancer_listener_list > $SCRATCH_AREA/listeners.json &
+
+echo -n "[pools]"
+openstack_loadbalancer_pool_list > $SCRATCH_AREA/pools.json &
+wait
 # Extract port info
-while read -r port_info; do
-    uuid=${port_info%% *}
+for uuid in `jq -r '.ports[].id' $SCRATCH_AREA/ports.json`; do
     mkdir -p $SCRATCH_AREA/ports/$uuid
+    {
+    port="`jq -r \".ports[]| select(.id==\\\"$uuid\\\")\" $SCRATCH_AREA/ports.json`"
     # note: format of this field changes across releases so this may need updating
-    ip_address=`echo ${port_info#* }| \
-                  sed -rn -e "s/.+ip_address='([[:digit:]\.]+)',\s+.+/\1/" \
-                          -e "s/.+ip_address':\s+'([[:digit:]\.]+)'}.+/\1/p"`
-    subnet_id=`echo ${port_info#* }| \
-                 sed -rn -e "s/.+subnet_id='([[:alnum:]\-]+)',.+/\1/" \
-                         -e "s/.+\{'subnet_id':\s+'([[:alnum:]\-]+)',.+/\1/p"`
+    ip_address=`echo $port| jq -r '.fixed_ips[].ip_address'`
+    subnet_id=`echo $port| jq -r '.fixed_ips[].subnet_id'`
     #[ -n "$ip_address" ] && [ -n "$subnet_id" ] || echo "WARNING: incomplete information for port $uuid"
     echo $ip_address > $SCRATCH_AREA/ports/$uuid/ip_address
     echo $subnet_id > $SCRATCH_AREA/ports/$uuid/subnet_id
-done < $SCRATCH_AREA/port_list
+    } &
+done
+wait
+if ! [ -e "$SCRATCH_AREA/loadbalancer_list" ]; then
+    jq -r '.loadbalancers[].id' $SCRATCH_AREA/loadbalancers.json > $SCRATCH_AREA/loadbalancer_list
+fi
 
-# Get pools, listeners and members
-echo -n "[pools+members+listeners]"
+# Get listeners and members
+echo -n "[members+listeners]"
 while read -r lb; do
-    mkdir -p $SCRATCH_AREA/$lb/pools
-    for pool in `openstack loadbalancer pool list -c id -f value --loadbalancer $lb`; do
-        mkdir -p $SCRATCH_AREA/$lb/pools/$pool
-    done &
-    wait
+    for id in `jq -r ".pools[]| select(.loadbalancers[]| select(.id==\"$lb\"))| .id" $SCRATCH_AREA/pools.json`; do
+        mkdir -p $SCRATCH_AREA/loadbalancers/$lb/pools/$id
+    done
 
-    for pool in `ls $SCRATCH_AREA/$lb/pools`; do
-        mkdir -p $SCRATCH_AREA/$lb/listeners
-        for listener in `openstack loadbalancer listener list| awk "\\$4==\"$pool\" {print \\$2}"`; do
-            mkdir -p $SCRATCH_AREA/$lb/listeners/$listener
-            readarray -t listener_info<<<"`openstack loadbalancer listener show $listener -f value -c protocol -c protocol_port`"
-            echo "${listener_info[0]}" > $SCRATCH_AREA/$lb/listeners/$listener/protocol
-            echo "${listener_info[1]}" > $SCRATCH_AREA/$lb/listeners/$listener/port
+    for pool in `jq -r '.pools[].id' $SCRATCH_AREA/pools.json`; do
+        mkdir -p $SCRATCH_AREA/loadbalancers/$lb/listeners
+        for id in `jq -r ".listeners[]| select(.loadbalancers[]| select(.id==\"$lb\"))| .id" $SCRATCH_AREA/listeners.json`; do
+            mkdir -p $SCRATCH_AREA/loadbalancers/$lb/listeners/$id
+            listener="`jq -r \".listeners[]| select(.id==\\\"$id\\\")\" $SCRATCH_AREA/listeners.json`"
+            echo $listener| jq -r '.protocol' > $SCRATCH_AREA/loadbalancers/$lb/listeners/$id/protocol
+            echo $listener| jq -r '.protocol_port' > $SCRATCH_AREA/loadbalancers/$lb/listeners/$id/port
         done &
-        mkdir -p $SCRATCH_AREA/$lb/pools/$pool/members
-        for member in `openstack loadbalancer member list -c id -f value $pool`; do
-            mkdir -p $SCRATCH_AREA/$lb/pools/$pool/members/$member
-            readarray -t member_info<<<"`openstack loadbalancer member show -c address -c subnet_id -f value $pool $member`"
-            echo "${member_info[0]}" > $SCRATCH_AREA/$lb/pools/$pool/members/$member/address
-            echo "${member_info[1]}" > $SCRATCH_AREA/$lb/pools/$pool/members/$member/subnet_id
+
+        mkdir -p $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members
+        openstack_loadbalancer_member_list $pool > $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members.json
+        for id in `jq -r '.members[].id' $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members.json`; do
+            mkdir -p $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$id
+            member="`jq -r \".members[]| select(.id==\\\"$id\\\")\" $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members.json`"
+            echo $member| jq -r '.address' > $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$id/address
+            echo $member| jq -r '.subnet_id' > $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$id/subnet_id
+
         done &
         wait
     done &
@@ -90,8 +108,8 @@ fetch_security_group_rules ()
 
     ! [ -d $sg_path ] || return
     mkdir -p $sg_path
-    for rule in `openstack security group rule list $sg -c ID -f value`; do
-        openstack security group rule show $rule > $sg_path/$rule &
+    for rule in `openstack_security_group_rule_list $sg| jq '.security_group_rules[].id'`; do
+        openstack_security_group_rule_show $rule > $sg_path/$rule &
     done
     wait
 }
@@ -101,7 +119,7 @@ get_subnet_cidr ()
     local subnet=$1
     if ! [ -r "$SCRATCH_AREA/subnets/$subnet/cidr" ]; then
         mkdir -p $SCRATCH_AREA/subnets/$subnet/
-        openstack subnet show $subnet -c cidr -f value > $SCRATCH_AREA/subnets/$subnet/cidr
+        openstack_subnet_show $subnet| jq -r '.subnet.cidr' > $SCRATCH_AREA/subnets/$subnet/cidr
     fi
     cat $SCRATCH_AREA/subnets/$subnet/cidr
     return
@@ -131,13 +149,13 @@ while read -r lb; do
     (
     mkdir -p $SCRATCH_AREA/results/$lb
     mkdir -p $SCRATCH_AREA/security_groups
-    for pool in `ls $SCRATCH_AREA/$lb/pools`; do
-        for listener in `ls $SCRATCH_AREA/$lb/listeners`; do
-            listener_port=`cat $SCRATCH_AREA/$lb/listeners/$listener/port`
+    for pool in `ls $SCRATCH_AREA/loadbalancers/$lb/pools`; do
+        for listener in `ls $SCRATCH_AREA/loadbalancers/$lb/listeners`; do
+            listener_port=`cat $SCRATCH_AREA/loadbalancers/$lb/listeners/$listener/port`
             error_idx=0
-            for member_uuid in `ls $SCRATCH_AREA/$lb/pools/$pool/members`; do
-                m_address=`cat $SCRATCH_AREA/$lb/pools/$pool/members/$member_uuid/address`
-                m_subnet_id=`cat $SCRATCH_AREA/$lb/pools/$pool/members/$member_uuid/subnet_id`
+            for member_uuid in `ls $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members`; do
+                m_address=`cat $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$member_uuid/address`
+                m_subnet_id=`cat $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$member_uuid/subnet_id`
 
                 # find port with this address and subnet_id
                 port_uuid=`get_member_port_uuid $m_subnet_id $m_address`
@@ -146,7 +164,7 @@ while read -r lb; do
                     continue
                 fi
 
-                for sg in `openstack port show -c security_group_ids -f value $port_uuid| egrep -o "[[:alnum:]\-]+"`; do
+                for sg in `jq -r ".ports[]| select(.id==\"$port_uuid\")| .security_groups[]" $SCRATCH_AREA/ports.json`; do
                     fetch_security_group_rules $sg
                     found=false
                     for rule in `find $SCRATCH_AREA/security_groups/$sg/rules/ -type f`; do
