@@ -1,4 +1,4 @@
-#!/bin/bash -eu
+#!/bin/bash -u
 #
 # Scans all Octavia loadbalancers, checks that all member ports' have a security
 # group rule containing a rule that opens the port being loadbalanced.
@@ -15,13 +15,56 @@ neutron_ep=`get_endpoint neutron`
 nova_ep=`get_endpoint nova`
 octavia_ep=`get_endpoint octavia`
 
-
 cleanup ()
 {
     rm -rf $SCRATCH_AREA
 }
 
 trap cleanup KILL INT EXIT
+
+fetch_security_group_rules ()
+{
+    
+    # get sg rules if they are not already cached
+    local sg=$1
+    local sg_path=$SCRATCH_AREA/security_groups/$sg/rules/
+    local rule=
+
+    ! [ -d $sg_path ] || return
+    mkdir -p $sg_path
+    for rule in `openstack_security_group_rule_list $sg| jq -r '.security_group_rules[].id'`; do
+        openstack_security_group_rule_show $rule > $sg_path/$rule
+    done
+}
+
+get_subnet_cidr ()
+{
+    local subnet=$1
+    if ! [ -r "$SCRATCH_AREA/subnets/$subnet/cidr" ]; then
+        mkdir -p $SCRATCH_AREA/subnets/$subnet/
+        openstack_subnet_show $subnet| jq -r '.subnet.cidr' > $SCRATCH_AREA/subnets/$subnet/cidr
+    fi
+    cat $SCRATCH_AREA/subnets/$subnet/cidr
+    return
+}
+
+get_member_port_uuid ()
+{
+    local m_subnet_id=$1
+    local m_address=$2
+    local port=
+    local port_ip_address=
+
+    readarray -t ports<<<`find $SCRATCH_AREA/ports -name subnet_id| xargs -l egrep -l "$m_subnet_id$"`
+    for path in ${ports[@]}; do
+        [ -n "$path" ] || continue
+        port=`dirname $path`
+        port_ip_address=`cat $port/ip_address`
+        [[ "$port_ip_address" == "$m_address" ]] || continue
+        basename $port
+        return 0
+    done
+}
 
 if [ -z "${OS_AUTH_URL:-}" ]; then
     read -p "Path to credentials file: " openrc_path
@@ -68,8 +111,8 @@ if ! [ -e "$SCRATCH_AREA/loadbalancer_list" ]; then
     jq -r '.loadbalancers[].id' $SCRATCH_AREA/loadbalancers.json > $SCRATCH_AREA/loadbalancer_list
 fi
 
-# Get listeners and members
-echo -n "[members+listeners]"
+# Get members
+echo -n "[members]"
 while read -r lb; do
     for id in `jq -r ".pools[]| select(.loadbalancers[]| select(.id==\"$lb\"))| .id" $SCRATCH_AREA/pools.json`; do
         mkdir -p $SCRATCH_AREA/loadbalancers/$lb/pools/$id
@@ -77,12 +120,13 @@ while read -r lb; do
 
     for pool in `jq -r '.pools[].id' $SCRATCH_AREA/pools.json`; do
         mkdir -p $SCRATCH_AREA/loadbalancers/$lb/listeners
-        for id in `jq -r ".listeners[]| select(.loadbalancers[]| select(.id==\"$lb\"))| .id" $SCRATCH_AREA/listeners.json`; do
+        for id in `jq -r ".listeners[]| select(.loadbalancers[]| select(.id==\"$lb\"))| \
+                                        select(.default_pool_id==\"$pool\")| .id" $SCRATCH_AREA/listeners.json`; do
             mkdir -p $SCRATCH_AREA/loadbalancers/$lb/listeners/$id
             listener="`jq -r \".listeners[]| select(.id==\\\"$id\\\")\" $SCRATCH_AREA/listeners.json`"
             echo $listener| jq -r '.protocol' > $SCRATCH_AREA/loadbalancers/$lb/listeners/$id/protocol
             echo $listener| jq -r '.protocol_port' > $SCRATCH_AREA/loadbalancers/$lb/listeners/$id/port
-        done &
+        done
 
         mkdir -p $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members
         openstack_loadbalancer_member_list $pool > $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members.json
@@ -91,62 +135,16 @@ while read -r lb; do
             member="`jq -r \".members[]| select(.id==\\\"$id\\\")\" $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members.json`"
             echo $member| jq -r '.address' > $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$id/address
             echo $member| jq -r '.subnet_id' > $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$id/subnet_id
-
-        done &
-        wait
-    done &
+        done
+    done
 done < $SCRATCH_AREA/loadbalancer_list
 wait
 
 echo ""
 
-fetch_security_group_rules ()
-{
-    # get sg rules if they are not already cached
-    local sg=$1
-    local sg_path=$SCRATCH_AREA/security_groups/$sg/rules/
-
-    ! [ -d $sg_path ] || return
-    mkdir -p $sg_path
-    for rule in `openstack_security_group_rule_list $sg| jq '.security_group_rules[].id'`; do
-        openstack_security_group_rule_show $rule > $sg_path/$rule &
-    done
-    wait
-}
-
-get_subnet_cidr ()
-{
-    local subnet=$1
-    if ! [ -r "$SCRATCH_AREA/subnets/$subnet/cidr" ]; then
-        mkdir -p $SCRATCH_AREA/subnets/$subnet/
-        openstack_subnet_show $subnet| jq -r '.subnet.cidr' > $SCRATCH_AREA/subnets/$subnet/cidr
-    fi
-    cat $SCRATCH_AREA/subnets/$subnet/cidr
-    return
-}
-
-get_member_port_uuid ()
-{
-    local m_subnet_id=$1
-    local m_address=$2
-    local port=
-    local port_ip_address=
-
-    readarray -t ports<<<`find $SCRATCH_AREA/ports -name subnet_id| xargs -l egrep -l "$m_subnet_id$"`
-    for path in ${ports[@]}; do
-        [ -n "$path" ] || continue
-        port=`dirname $path`
-        port_ip_address=`cat $port/ip_address`
-        [[ "$port_ip_address" == "$m_address" ]] || continue
-        basename $port
-        return 0
-    done
-}
-
 # Run checks
 echo "INFO: checking loadbalancers '`cat $SCRATCH_AREA/loadbalancer_list| tr -s '\n' ' '| sed -r 's/\s+$//g'`'"
 while read -r lb; do
-    (
     mkdir -p $SCRATCH_AREA/results/$lb
     mkdir -p $SCRATCH_AREA/security_groups
     for pool in `ls $SCRATCH_AREA/loadbalancers/$lb/pools`; do
@@ -156,6 +154,7 @@ while read -r lb; do
             for member_uuid in `ls $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members`; do
                 m_address=`cat $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$member_uuid/address`
                 m_subnet_id=`cat $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$member_uuid/subnet_id`
+                subnet_cidr=`get_subnet_cidr $m_subnet_id`
 
                 # find port with this address and subnet_id
                 port_uuid=`get_member_port_uuid $m_subnet_id $m_address`
@@ -164,52 +163,92 @@ while read -r lb; do
                     continue
                 fi
 
+                # keep a tab of what is missing
+                declare -A missing_info=()
+                missing_info[port_range]=true
+                missing_info[remote_ip_prefix]=true
+                missing_info[direction]=true
+                declare -a security_groups_checked=()
+
+                found=false
                 for sg in `jq -r ".ports[]| select(.id==\"$port_uuid\")| .security_groups[]" $SCRATCH_AREA/ports.json`; do
+                    security_groups_checked+=( $sg )
                     fetch_security_group_rules $sg
-                    found=false
                     for rule in `find $SCRATCH_AREA/security_groups/$sg/rules/ -type f`; do
                         # THIS IS THE ACTUAL CHECK - ADD MORE AS NEEDED #
-                        port_range_max=`awk "\\$2==\"port_range_max\" {print \\$4}" $rule`
-                        port_range_min=`awk "\\$2==\"port_range_min\" {print \\$4}" $rule`
-                        remote_ip_prefix=`awk "\\$2==\"remote_ip_prefix\" {print \\$4}" $rule`
-                        direction=`awk "\\$2==\"direction\" {print \\$4}" $rule`
-                        subnet_cidr=`get_subnet_cidr $m_subnet_id`
+                        port_range_max=`jq -r '.security_group_rule.port_range_max' $rule`
+                        port_range_min=`jq -r '.security_group_rule.port_range_min' $rule`
+                        remote_ip_prefix=`jq -r '.security_group_rule.remote_ip_prefix' $rule`
+                        direction=`jq -r '.security_group_rule.direction' $rule`
 
                         # ensure port range
-                        [[ "$port_range_min" == "None" ]] || [[ "$port_range_max" == "None" ]] && continue
-                        ((listener_port>=port_range_min)) && ((listener_port<=port_range_max)) || continue
+                        if [[ "$port_range_min" != "null" ]] && [[ "$port_range_max" != "null" ]]; then
+                            if ((listener_port>=port_range_min)) && ((listener_port<=port_range_max)); then
+                                missing_info[port_range]=false
+                            fi
+                        fi
+
                         # ensure ingress
-                        [[ "$direction" == "ingress" ]] || continue
+                        if [[ "$direction" == "ingress" ]]; then
+                            missing_info[direction]=false
+                        fi
+
                         # ensure correct network range
-                        [[ "$remote_ip_prefix" == "$subnet_cidr" ]] || continue
+                        if [[ "$remote_ip_prefix" == "$subnet_cidr" ]] || \
+                               [[ "$remote_ip_prefix" == "0.0.0.0/0" ]]; then
+                            missing_info[remote_ip_prefix]=false                             
+                        fi
 
-                        found=true
-                        break
-                    done
-                    if ! $found; then
-                        error_path=$SCRATCH_AREA/results/$lb/errors/$error_idx
-                        mkdir -p $error_path/{security_group,loadbalancer}
-                        echo "$sg" > $error_path/security_group/id
-                        echo "$listener_port" > $error_path/loadbalancer/protocol_port
-                        echo "$member_uuid" > $error_path/loadbalancer/member_id
-                        echo "$port_uuid" > $error_path/loadbalancer/member_vm_port
-                        echo "$subnet_cidr" > $error_path/loadbalancer/member_vm_subnet_cidr
-
-                        for section in `ls $error_path`; do
-                            echo "$section:" >> $error_path/details
-                            for entry in `ls $error_path/$section`; do
-                                echo " - $entry: `cat $error_path/$section/$entry`" >> $error_path/details
-                            done
+                        still_missing=false
+                        for item in ${!missing_info[@]}; do
+                            ${missing_info[$item]} && still_missing=true
                         done
-                        ((error_idx+=1))
-                    fi
+
+                        if ! $still_missing; then
+                            found=true
+                            break
+                        fi
+                    done
+                    ! $found || break
                 done
+                if ((${#security_groups_checked[@]})) && ! $found; then
+                    error_path=$SCRATCH_AREA/results/$lb/errors/$error_idx
+                    mkdir -p $error_path/{security_group,loadbalancer}
+                    echo "$pool" > $error_path/loadbalancer/pool
+                    echo "$listener_port" > $error_path/loadbalancer/protocol_port
+                    echo "$listener" > $error_path/loadbalancer/listener
+                    echo "$member_uuid" > $error_path/loadbalancer/member
+                    echo "$port_uuid" > $error_path/loadbalancer/member_vm_port
+                    echo "$subnet_cidr" > $error_path/loadbalancer/member_vm_subnet_cidr
+
+                    comma=false                
+                    for sg in ${security_groups_checked[@]}; do
+                        $comma && echo -n ", " >> $error_path/security_group/ids
+                        echo -n "$sg" >> $error_path/security_group/ids
+                        comma=true
+                    done
+
+                    comma=false
+                    for item in ${!missing_info[@]}; do
+                        ${missing_info[$item]} || continue
+                        $comma && echo -n ", " >> $error_path/security_group/missing_rule_items
+                        echo -n "$item" >> $error_path/security_group/missing_rule_items
+                        comma=true
+                    done                    
+
+                    for section in `ls $error_path`; do
+                        [[ "$section" != "details" ]] || continue
+                        echo "$section:" >> $error_path/details
+                        for entry in `ls $error_path/$section`; do
+                            echo " - $entry: `cat $error_path/$section/$entry`" >> $error_path/details
+                        done
+                    done
+                    ((error_idx+=1))
+                fi
             done
         done
-    done > $SCRATCH_AREA/results/$lb/all
-    ) &
+    done
 done < $SCRATCH_AREA/loadbalancer_list
-wait
 
 for errors in `find $SCRATCH_AREA/results -name errors`; do
     lb=$(basename `dirname $errors`)
