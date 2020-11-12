@@ -4,17 +4,6 @@
 # group rule containing a rule that opens the port being loadbalanced.
 #
 SCRATCH_AREA=`mktemp -d`
-LOADBALANCER=${1:-}
-
-. `dirname $0`/openstack_client
-
-echo "INFO: fetching token"
-TOKEN=`openstack token issue| awk '$2=="id" {print $4}'`
-AUTH_URL=`echo $OS_AUTH_URL| sed 's/5000/35357/g'`
-neutron_ep=`get_endpoint neutron`
-nova_ep=`get_endpoint nova`
-octavia_ep=`get_endpoint octavia`
-
 cleanup ()
 {
     rm -rf $SCRATCH_AREA
@@ -22,9 +11,12 @@ cleanup ()
 
 trap cleanup KILL INT EXIT
 
+LOADBALANCER=${1:-}
+
+. `dirname $0`/common/openstack_client
+
 fetch_security_group_rules ()
 {
-    
     # get sg rules if they are not already cached
     local sg=$1
     local sg_path=$SCRATCH_AREA/security_groups/$sg/rules/
@@ -40,11 +32,12 @@ fetch_security_group_rules ()
 get_subnet_cidr ()
 {
     local subnet=$1
-    if ! [ -r "$SCRATCH_AREA/subnets/$subnet/cidr" ]; then
-        mkdir -p $SCRATCH_AREA/subnets/$subnet/
-        openstack_subnet_show $subnet| jq -r '.subnet.cidr' > $SCRATCH_AREA/subnets/$subnet/cidr
+    local path=$SCRATCH_AREA/subnets/$subnet
+    if ! [ -r "$path/cidr" ]; then
+        mkdir -p $path
+        openstack_subnet_show $subnet| jq -r '.subnet.cidr' > $path/cidr
     fi
-    cat $SCRATCH_AREA/subnets/$subnet/cidr
+    cat $path/cidr
     return
 }
 
@@ -66,11 +59,6 @@ get_member_port_uuid ()
     done
 }
 
-if [ -z "${OS_AUTH_URL:-}" ]; then
-    read -p "Path to credentials file: " openrc_path
-    source $openrc_path
-fi
-
 mkdir -p $SCRATCH_AREA/{results,ports,loadbalancers,pools,listeners}
 
 echo -n "INFO: pre-fetching information..."
@@ -88,10 +76,10 @@ else
 fi
 
 echo -n "[listeners]"
-openstack_loadbalancer_listener_list > $SCRATCH_AREA/listeners.json &
+openstack_loadbalancer_listener_list ${LOADBALANCER:-} > $SCRATCH_AREA/listeners.json &
 
 echo -n "[pools]"
-openstack_loadbalancer_pool_list > $SCRATCH_AREA/pools.json &
+openstack_loadbalancer_pool_list ${LOADBALANCER:-} > $SCRATCH_AREA/pools.json &
 wait
 # Extract port info
 for uuid in `jq -r '.ports[].id' $SCRATCH_AREA/ports.json`; do
@@ -101,7 +89,6 @@ for uuid in `jq -r '.ports[].id' $SCRATCH_AREA/ports.json`; do
     # note: format of this field changes across releases so this may need updating
     ip_address=`echo $port| jq -r '.fixed_ips[].ip_address'`
     subnet_id=`echo $port| jq -r '.fixed_ips[].subnet_id'`
-    #[ -n "$ip_address" ] && [ -n "$subnet_id" ] || echo "WARNING: incomplete information for port $uuid"
     echo $ip_address > $SCRATCH_AREA/ports/$uuid/ip_address
     echo $subnet_id > $SCRATCH_AREA/ports/$uuid/subnet_id
     } &
@@ -111,14 +98,12 @@ if ! [ -e "$SCRATCH_AREA/loadbalancer_list" ]; then
     jq -r '.loadbalancers[].id' $SCRATCH_AREA/loadbalancers.json > $SCRATCH_AREA/loadbalancer_list
 fi
 
-# Get members
+# Get members and per-lb listeners
 echo -n "[members]"
 while read -r lb; do
-    for id in `jq -r ".pools[]| select(.loadbalancers[]| select(.id==\"$lb\"))| .id" $SCRATCH_AREA/pools.json`; do
-        mkdir -p $SCRATCH_AREA/loadbalancers/$lb/pools/$id
-    done
-
-    for pool in `jq -r '.pools[].id' $SCRATCH_AREA/pools.json`; do
+    mkdir -p $SCRATCH_AREA/loadbalancers/$lb/pools
+    for pool in `jq -r ".pools[]| select(.loadbalancers[]| select(.id==\"$lb\"))| .id" $SCRATCH_AREA/pools.json`; do
+        mkdir -p $SCRATCH_AREA/loadbalancers/$lb/pools/$pool
         mkdir -p $SCRATCH_AREA/loadbalancers/$lb/listeners
         for id in `jq -r ".listeners[]| select(.loadbalancers[]| select(.id==\"$lb\"))| \
                                         select(.default_pool_id==\"$pool\")| .id" $SCRATCH_AREA/listeners.json`; do
@@ -159,7 +144,7 @@ while read -r lb; do
                 # find port with this address and subnet_id
                 port_uuid=`get_member_port_uuid $m_subnet_id $m_address`
                 if [[ -z "$port_uuid" ]]; then
-                    echo "WARNING: unable to identify member port for address=$m_address, subnet=$m_subnet_id - skipping member $member_uuid"
+                    echo "WARNING: unable to identify member port with address=$m_address on subnet=$m_subnet_id - skipping member $member_uuid"
                     continue
                 fi
 
@@ -175,7 +160,10 @@ while read -r lb; do
                     security_groups_checked+=( $sg )
                     fetch_security_group_rules $sg
                     for rule in `find $SCRATCH_AREA/security_groups/$sg/rules/ -type f`; do
-                        # THIS IS THE ACTUAL CHECK - ADD MORE AS NEEDED #
+
+                        # THESE ARE THE ACTUAL CHECKS - ADD MORE AS NEEDED #
+
+                        # Look for a rule that contains a match for all of the following
                         port_range_max=`jq -r '.security_group_rule.port_range_max' $rule`
                         port_range_min=`jq -r '.security_group_rule.port_range_min' $rule`
                         remote_ip_prefix=`jq -r '.security_group_rule.remote_ip_prefix' $rule`
@@ -199,6 +187,7 @@ while read -r lb; do
                             missing_info[remote_ip_prefix]=false                             
                         fi
 
+                        # Have we got a match for all items in this rule?
                         still_missing=false
                         for item in ${!missing_info[@]}; do
                             ${missing_info[$item]} && still_missing=true
@@ -212,6 +201,7 @@ while read -r lb; do
                     ! $found || break
                 done
                 if ((${#security_groups_checked[@]})) && ! $found; then
+                    # Save the information to display later
                     error_path=$SCRATCH_AREA/results/$lb/errors/$error_idx
                     mkdir -p $error_path/{security_group,loadbalancer}
                     echo "$pool" > $error_path/loadbalancer/pool

@@ -1,0 +1,138 @@
+#!/bin/bash -eu
+
+json_key_exists ()
+{
+    local key=$1; shift
+    local exists=`echo $@| jq "has(\"$key\")"`
+    [[ $exists == true ]] || return 1
+    return 0
+}
+
+get_endpoint ()
+{
+    local name=$1
+    local svcs=
+    local svc=
+    local eps=
+    local ep=
+
+    svcs=`curl -s -H "X-Auth-Token: $TOKEN" $AUTH_URL/services`
+    if json_key_exists error $svcs; then
+        svcs=`curl -s -H "X-Auth-Token: $TOKEN" $AUTH_URL/OS-KSADM/services`
+    fi
+
+    for key in services OS-KSADM:services; do
+        if json_key_exists $key $svcs; then
+            svc=`echo "$svcs"| jq -r ".$key[]| select(.name==\"$name\")| .id"`
+            break
+        fi
+    done
+
+    eps=`curl -s -H "X-Auth-Token: $TOKEN" $AUTH_URL/endpoints`
+    for interface in admin internal public; do
+        url=`echo "$eps"| jq -r ".endpoints[]| select(.service_id==\"$svc\")| select(.interface==\"$interface\")| .url"`
+        [ -z "$url" ] || break
+    done
+
+    echo $url
+}
+
+if [ -z "${OS_AUTH_URL:-}" ]; then
+    read -p "Path to credentials file: " openrc_path
+    if ! [ -e "$openrc_path" ]; then
+        echo "ERROR: invalid path to credentials file"
+        exit 1
+    fi
+    source $openrc_path
+fi
+
+echo "INFO: fetching token"
+TOKEN=`openstack token issue| awk '$2=="id" {print $4}'`
+AUTH_URL=`echo $OS_AUTH_URL| sed 's/5000/35357/g'`
+NEUTRON_EP=`get_endpoint neutron`
+NOVA_EP=`get_endpoint nova`
+OCTAVIA_EP=`get_endpoint octavia`
+
+openstack_port_list ()
+{
+    curl -s $NEUTRON_EP/v2.0/ports -H "Accept: application/json" -H "X-Auth-Token: $TOKEN"
+}
+
+openstack_port_show ()
+{
+    local uuid=$1
+    curl -s $NEUTRON_EP/v2.0/ports/$uuid -H "Accept: application/json" -H "X-Auth-Token: $TOKEN"
+}
+
+openstack_network_show ()
+{
+    local uuid=$1
+    curl -s $NEUTRON_EP/v2.0/networks/$uuid -H "Accept: application/json" -H "X-Auth-Token: $TOKEN"
+}
+
+openstack_subnet_show ()
+{
+    local uuid=$1
+    curl -s $NEUTRON_EP/v2.0/subnets/$uuid -H "Accept: application/json" -H "X-Auth-Token: $TOKEN"
+}
+
+openstack_security_group_rule_list ()
+{
+    local uuid=${1:-}
+    if [[ -n "$uuid" ]]; then
+        curl -s $NEUTRON_EP/v2.0/security-group-rules?security_group_id=$uuid -H "Accept: application/json" -H "X-Auth-Token: $TOKEN"
+        return
+    fi
+    curl -s $NEUTRON_EP/v2.0/security-group-rules -H "Accept: application/json" -H "X-Auth-Token: $TOKEN"
+}
+
+openstack_security_group_rule_show ()
+{
+    local uuid=$1
+    curl -s $NEUTRON_EP/v2.0/security-group-rules/$uuid -H "Accept: application/json" -H "X-Auth-Token: $TOKEN"
+}
+
+openstack_loadbalancer_list ()
+{
+    curl -s $OCTAVIA_EP/v2.0/lbaas/loadbalancers -H "Accept: application/json" -H "X-Auth-Token: $TOKEN"
+}
+
+openstack_loadbalancer_pool_list ()
+{
+    local loadbalancer=${1:-}
+    if [[ -n "$loadbalancer" ]]; then
+        curl -s $OCTAVIA_EP/v2.0/lbaas/pools?loadbalancer_id=$loadbalancer -H "Accept: application/json" -H "X-Auth-Token: $TOKEN"
+        return
+    fi
+    curl -s $OCTAVIA_EP/v2.0/lbaas/pools -H "Accept: application/json" -H "X-Auth-Token: $TOKEN"
+}
+
+openstack_loadbalancer_listener_list ()
+{
+    local loadbalancer=${1:-}
+    if [[ -n "$loadbalancer" ]]; then
+        curl -s $OCTAVIA_EP/v2.0/lbaas/listeners?loadbalancer_id=$loadbalancer -H "Accept: application/json" -H "X-Auth-Token: $TOKEN"
+        return        
+    fi
+    curl -s $OCTAVIA_EP/v2.0/lbaas/listeners -H "Accept: application/json" -H "X-Auth-Token: $TOKEN"
+}
+
+openstack_loadbalancer_member_list ()
+{
+    local pool=$1
+    curl -s $OCTAVIA_EP/v2.0/lbaas/pools/$pool/members -H "Accept: application/json" -H "X-Auth-Token: $TOKEN"    
+}
+
+openstack_loadbalancer_listener_show ()
+{
+    local uuid=$1
+    curl -s $OCTAVIA_EP/v2.0/lbaas/listeners/$uuid -H "Accept: application/json" -H "X-Auth-Token: $TOKEN"
+}
+
+
+openstack_loadbalancer_member_show ()
+{
+    local uuid=$1
+    curl -s $OCTAVIA_EP/v2.0/lbaas/members/$uuid -H "Accept: application/json" -H "X-Auth-Token: $TOKEN"    
+}
+
