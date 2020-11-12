@@ -45,18 +45,10 @@ get_member_port_uuid ()
 {
     local m_subnet_id=$1
     local m_address=$2
-    local port=
-    local port_ip_address=
 
-    readarray -t ports<<<`find $SCRATCH_AREA/ports -name subnet_id| xargs -l egrep -l "$m_subnet_id$"`
-    for path in ${ports[@]}; do
-        [ -n "$path" ] || continue
-        port=`dirname $path`
-        port_ip_address=`cat $port/ip_address`
-        [[ "$port_ip_address" == "$m_address" ]] || continue
-        basename $port
-        return 0
-    done
+    # should only ever return one port
+    jq -r ".ports[]| select(.fixed_ips[]| .subnet_id==\"$m_subnet_id\")| select(.fixed_ips[]| .ip_address==\"$m_address\")| .id" \
+        $SCRATCH_AREA/ports.json
 }
 
 mkdir -p $SCRATCH_AREA/{results,ports,loadbalancers,pools,listeners}
@@ -81,19 +73,7 @@ openstack_loadbalancer_listener_list ${LOADBALANCER:-} > $SCRATCH_AREA/listeners
 echo -n "[pools]"
 openstack_loadbalancer_pool_list ${LOADBALANCER:-} > $SCRATCH_AREA/pools.json &
 wait
-# Extract port info
-for uuid in `jq -r '.ports[].id' $SCRATCH_AREA/ports.json`; do
-    mkdir -p $SCRATCH_AREA/ports/$uuid
-    {
-    port="`jq -r \".ports[]| select(.id==\\\"$uuid\\\")\" $SCRATCH_AREA/ports.json`"
-    # note: format of this field changes across releases so this may need updating
-    ip_address=`echo $port| jq -r '.fixed_ips[].ip_address'`
-    subnet_id=`echo $port| jq -r '.fixed_ips[].subnet_id'`
-    echo $ip_address > $SCRATCH_AREA/ports/$uuid/ip_address
-    echo $subnet_id > $SCRATCH_AREA/ports/$uuid/subnet_id
-    } &
-done
-wait
+
 if ! [ -e "$SCRATCH_AREA/loadbalancer_list" ]; then
     jq -r '.loadbalancers[].id' $SCRATCH_AREA/loadbalancers.json > $SCRATCH_AREA/loadbalancer_list
 fi
@@ -132,21 +112,22 @@ echo "INFO: checking loadbalancers '`cat $SCRATCH_AREA/loadbalancer_list| tr -s 
 while read -r lb; do
     mkdir -p $SCRATCH_AREA/results/$lb
     mkdir -p $SCRATCH_AREA/security_groups
+    error_idx=0
     for pool in `ls $SCRATCH_AREA/loadbalancers/$lb/pools`; do
-        for listener in `ls $SCRATCH_AREA/loadbalancers/$lb/listeners`; do
-            listener_port=`cat $SCRATCH_AREA/loadbalancers/$lb/listeners/$listener/port`
-            error_idx=0
-            for member_uuid in `ls $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members`; do
-                m_address=`cat $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$member_uuid/address`
-                m_subnet_id=`cat $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$member_uuid/subnet_id`
-                subnet_cidr=`get_subnet_cidr $m_subnet_id`
+        for member_uuid in `ls $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members`; do
+            m_address=`cat $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$member_uuid/address`
+            m_subnet_id=`cat $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$member_uuid/subnet_id`
+            subnet_cidr=`get_subnet_cidr $m_subnet_id`
 
-                # find port with this address and subnet_id
-                port_uuid=`get_member_port_uuid $m_subnet_id $m_address`
-                if [[ -z "$port_uuid" ]]; then
-                    echo "WARNING: unable to identify member port with address=$m_address on subnet=$m_subnet_id - skipping member $member_uuid"
-                    continue
-                fi
+            # find port with this address and subnet_id
+            port_uuid=`get_member_port_uuid $m_subnet_id $m_address`
+            if [[ -z "$port_uuid" ]]; then
+                echo "WARNING: unable to identify member port with address=$m_address on subnet=$m_subnet_id - skipping member $member_uuid"
+                continue
+            fi
+
+            for listener in `ls $SCRATCH_AREA/loadbalancers/$lb/listeners`; do
+                listener_port=`cat $SCRATCH_AREA/loadbalancers/$lb/listeners/$listener/port`
 
                 # keep a tab of what is missing
                 declare -A missing_info=()
