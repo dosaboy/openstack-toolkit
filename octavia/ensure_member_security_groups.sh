@@ -128,12 +128,6 @@ while read -r lb; do
 
             for listener in `ls $SCRATCH_AREA/loadbalancers/$lb/listeners`; do
                 listener_port=`cat $SCRATCH_AREA/loadbalancers/$lb/listeners/$listener/port`
-
-                # keep a tab of what is missing
-                declare -A missing_info=()
-                missing_info[port_range]=true
-                missing_info[remote_ip_prefix]=true
-                missing_info[direction]=true
                 declare -a security_groups_checked=()
 
                 found=false
@@ -151,30 +145,32 @@ while read -r lb; do
                         direction=`jq -r '.security_group_rule.direction' $rule`
 
                         # ensure port range
+                        port_open=false
                         if [[ "$port_range_min" != "null" ]] && [[ "$port_range_max" != "null" ]]; then
                             if ((listener_port>=port_range_min)) && ((listener_port<=port_range_max)); then
-                                missing_info[port_range]=false
+                                port_open=true
                             fi
                         fi
 
+                        # following checks only apply iff the port is open i.e. they must all be within the same rule
+                        if ! $port_open; then
+                            continue
+                        fi
+
                         # ensure ingress
-                        if [[ "$direction" == "ingress" ]]; then
-                            missing_info[direction]=false
+                        if [[ "$direction" != "ingress" ]]; then
+                            continue
                         fi
 
                         # ensure correct network range
+                        valid_subnet_range=false
                         if [[ "$remote_ip_prefix" == "$subnet_cidr" ]] || \
                                [[ "$remote_ip_prefix" == "0.0.0.0/0" ]]; then
-                            missing_info[remote_ip_prefix]=false                             
+                            valid_subnet_range=true
                         fi
 
                         # Have we got a match for all items in this rule?
-                        still_missing=false
-                        for item in ${!missing_info[@]}; do
-                            ${missing_info[$item]} && still_missing=true
-                        done
-
-                        if ! $still_missing; then
+                        if $port_open && $valid_subnet_range; then
                             found=true
                             break
                         fi
@@ -192,20 +188,12 @@ while read -r lb; do
                     echo "$port_uuid" > $error_path/loadbalancer/member_vm_port
                     echo "$subnet_cidr" > $error_path/loadbalancer/member_vm_subnet_cidr
 
-                    comma=false                
+                    comma=false
                     for sg in ${security_groups_checked[@]}; do
                         $comma && echo -n ", " >> $error_path/security_group/ids
                         echo -n "$sg" >> $error_path/security_group/ids
                         comma=true
                     done
-
-                    comma=false
-                    for item in ${!missing_info[@]}; do
-                        ${missing_info[$item]} || continue
-                        $comma && echo -n ", " >> $error_path/security_group/missing_rule_items
-                        echo -n "$item" >> $error_path/security_group/missing_rule_items
-                        comma=true
-                    done                    
 
                     for section in `ls $error_path`; do
                         [[ "$section" != "details" ]] || continue
