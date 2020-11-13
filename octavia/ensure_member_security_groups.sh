@@ -107,14 +107,22 @@ wait
 
 echo ""
 
+# keep a records of what has been checked
+declare -A stats=(
+    [loadbalancers]=0
+    [members]=0
+)
+
 # Run checks
 echo "INFO: checking loadbalancers '`cat $SCRATCH_AREA/loadbalancer_list| tr -s '\n' ' '| sed -r 's/\s+$//g'`'"
 while read -r lb; do
+    ((stats[loadbalancers]+=1))
     mkdir -p $SCRATCH_AREA/results/$lb
     mkdir -p $SCRATCH_AREA/security_groups
     error_idx=0
     for pool in `ls $SCRATCH_AREA/loadbalancers/$lb/pools`; do
         for member_uuid in `ls $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members`; do
+            ((stats[members]+=1))
             m_address=`cat $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$member_uuid/address`
             m_subnet_id=`cat $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$member_uuid/subnet_id`
             subnet_cidr=`get_subnet_cidr $m_subnet_id`
@@ -122,7 +130,7 @@ while read -r lb; do
             # find port with this address and subnet_id
             port_uuid=`get_member_port_uuid $m_subnet_id $m_address`
             if [[ -z "$port_uuid" ]]; then
-                echo "WARNING: unable to identify member port with address=$m_address on subnet=$m_subnet_id - skipping member $member_uuid"
+                echo "WARNING: unable to identify member $member_uuid (pool=$pool) port with address=$m_address on subnet=$m_subnet_id - skipping checks for this member"
                 continue
             fi
 
@@ -220,7 +228,7 @@ done
 if `ls $SCRATCH_AREA/results/*/errors &>/dev/null`; then
     echo ""
 else
-    echo "INFO: no issues found."
+    echo "INFO: ${stats[loadbalancers]} loadbalancers and ${stats[members]} members checked - no issues found."
 fi
 
 echo "Done."
