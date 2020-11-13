@@ -1,0 +1,97 @@
+#!/bin/bash -eu
+#
+# Origin: https://gist.github.com/dosaboy/afc40bf31b784a4dd552f7f5569dc7ee
+#
+# Authors:
+#  - edward.hope-morley@canonical.com
+#  - opentastic@gmail.com
+#
+# Description:
+#  Fetch a list of all neutron HA routers check they have only one master
+#  (active) i.e. ensure there are no multi-master routers (according to
+#  neutron).
+#
+#  Run this script from a node that can access the Neutron API. Requires
+#  admin credentials.
+SCRATCH_AREA=`mktemp -d`
+
+cleanup ()
+{
+    rm -rf $SCRATCH_AREA
+}
+
+prettytable ()
+{
+    local in=$1
+
+    len=`head -n 1 $in| wc -c`
+    echo -n "+"; i=$((len-2));
+    while ((--i)); do echo -n '-'; done; echo "+"
+    head -n 1 $in
+    echo -n "+"; i=$((len-2)); while ((--i)); do echo -n '-'; done; echo "+"
+    tail +2 $in| sort -hk1
+    echo -n "+"; i=$((len-2)); while ((--i)); do echo -n '-'; done; echo "+"
+}
+
+trap cleanup KILL INT EXIT
+
+. `dirname $0`/../common/openstack_client
+
+## MAIN
+echo "Starting Neutron L3HA router check..."
+
+echo -n " * fetching routers..."
+openstack_router_list > $SCRATCH_AREA/routers.json
+echo "done."
+
+mkdir -p $SCRATCH_AREA/results
+
+echo " * checking `jq -r '.routers| length' $SCRATCH_AREA/routers.json` routers"
+for router in `jq -r '.routers[]| select(.ha==true)| select(.admin_state_up==true)| .id' $SCRATCH_AREA/routers.json`; do
+    mkdir -p $SCRATCH_AREA/$router
+    openstack_router_l3agent_list $router > $SCRATCH_AREA/$router/l3agents.json
+    num_active=`jq -r '.agents| map(select(.ha_state=="active"))| length' $SCRATCH_AREA/$router/l3agents.json`
+    unexpected=false
+    if ((num_active>1)); then
+        echo -e "\nRouter $router has unexpected ha_state (multiple active)" >> $SCRATCH_AREA/results/$router_id
+        unexpected=true
+    elif ((num_active==0)); then
+        echo e "\nRouter $router has unexpected ha_state (none active)" >> $SCRATCH_AREA/results/$router_id
+        unexpected=true
+    fi
+
+    $unexpected || continue
+
+    (
+    echo "| id | host | admin_state_up | alive | ha_state |"
+    for id in `jq -r '.agents[].id' $SCRATCH_AREA/$router/l3agents.json`; do
+        echo -n "| $id |"
+        host=`jq -r ".agents[]| select(.id==\"$id\")| .host" $SCRATCH_AREA/$router/l3agents.json`
+        echo -n " $host |"
+        admin_state_up=`jq -r ".agents[]| select(.id==\"$id\")| .admin_state_up" $SCRATCH_AREA/$router/l3agents.json`
+        if [[ $admin_state_up == "true" ]]; then
+            admin_state_up=":)"
+        else
+            admin_state_up=":("
+        fi
+        echo -n " $admin_state_up |"
+        alive=`jq -r ".agents[]| select(.id==\"$id\")| .alive" $SCRATCH_AREA/$router/l3agents.json`
+        echo -n " $alive |"
+        ha_state=`jq -r ".agents[]| select(.id==\"$id\")| .ha_state" $SCRATCH_AREA/$router/l3agents.json`
+        echo " $ha_state |"
+    done
+    ) | column -t > $SCRATCH_AREA/results/$router_id.table.tmp
+    prettytable $SCRATCH_AREA/results/$router_id.table.tmp > $SCRATCH_AREA/results/$router_id.table
+    cat $SCRATCH_AREA/results/$router_id.table >> $SCRATCH_AREA/results/$router_id
+    rm $SCRATCH_AREA/results/$router_id.table*
+done
+
+num_errors=`ls $SCRATCH_AREA/results| wc -l`
+echo -en "\nResults: "
+if ((num_errors)); then
+    echo "$num_errors routers found with unexpected status:"
+    cat $SCRATCH_AREA/results/*
+else
+    echo "$num_errors routers found with unexpected status."
+fi
+

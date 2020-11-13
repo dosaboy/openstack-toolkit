@@ -13,7 +13,7 @@ trap cleanup KILL INT EXIT
 
 LOADBALANCER=${1:-}
 
-. `dirname $0`/common/openstack_client
+. `dirname $0`/../common/openstack_client
 
 fetch_security_group_rules ()
 {
@@ -231,4 +231,3 @@ else
     echo "INFO: ${stats[loadbalancers]} loadbalancers and ${stats[members]} members checked - no issues found."
 fi
 
-echo "Done."

@@ -58,6 +58,17 @@ openstack_port_list ()
     curl -s $NEUTRON_EP/v2.0/ports -H "Accept: application/json" -H "X-Auth-Token: $TOKEN"
 }
 
+openstack_router_list ()
+{
+    curl -s $NEUTRON_EP/v2.0/routers -H "Accept: application/json" -H "X-Auth-Token: $TOKEN"
+}
+
+openstack_router_l3agent_list ()
+{
+    router_id=$1
+    curl -s $NEUTRON_EP/v2.0/routers/$router_id/l3-agents -H "Accept: application/json" -H "X-Auth-Token: $TOKEN"
+}
+
 openstack_port_show ()
 {
     local uuid=$1

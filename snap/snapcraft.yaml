@@ -11,7 +11,10 @@ environment:
 
 apps:
   octavia:
-    command: octavia/ensure_member_security_groups.sh
+    command: octavia/run.sh
+    plugs: [home, network]
+  neutron:
+    command: neutron/run.sh
     plugs: [home, network]
 parts:
   octavia-checks:
@@ -28,7 +31,6 @@ parts:
     python-version: python3
     python-packages:
       - python-openstackclient
-      - python-octaviaclient
     constraints: https://raw.githubusercontent.com/openstack/requirements/stable/ussuri/upper-constraints.txt
     build-packages:
       - libffi-dev
