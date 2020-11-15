@@ -1,0 +1,64 @@
+#!/bin/bash -eu
+#
+# Description:
+#  Show distribution of active vs. standby routers for each l3-agent host.
+#
+#  Run this script from a node that can access the Neutron API. Requires
+#  admin credentials.
+#
+SCRATCH_AREA=`mktemp -d`
+
+cleanup ()
+{
+    rm -rf $SCRATCH_AREA
+}
+
+trap cleanup KILL EXIT INT
+
+. `dirname $0`/../common/helpers
+. `dirname $0`/../common/openstack_client
+
+## MAIN
+echo "Starting Neutron L3HA router agent balance check..."
+
+echo -n " * fetching routers..."
+openstack_router_list > $SCRATCH_AREA/routers.json
+echo "done."
+
+echo " * found `jq -r '.routers| length' $SCRATCH_AREA/routers.json` routers"
+
+mkdir -p $SCRATCH_AREA/hosts/
+for router in `jq -r '.routers[]| select(.ha==true)| select(.admin_state_up==true)| .id' $SCRATCH_AREA/routers.json`; do
+    mkdir -p $SCRATCH_AREA/$router
+    (
+    openstack_router_l3agent_list $router > $SCRATCH_AREA/$router/l3agents.json
+    readarray -t hosts <<<`jq -r '.agents[]| select(.ha_state=="active")| .host' $SCRATCH_AREA/$router/l3agents.json`
+    if ((${#hosts[@]})) && [ -n "${hosts[0]}" ]; then
+        for host in ${hosts[@]}; do
+            mkdir -p $SCRATCH_AREA/hosts/$host/active
+            ln -s ../../../$router_id $SCRATCH_AREA/hosts/$host/active
+        done
+    fi
+
+    readarray -t hosts <<<`jq -r '.agents[]| select(.ha_state=="standby")| .host' $SCRATCH_AREA/$router/l3agents.json`
+    if ((${#hosts[@]})) && [ -n "${hosts[0]}" ]; then
+        for host in ${hosts[@]}; do
+            mkdir -p $SCRATCH_AREA/hosts/$host/standby
+            ln -s ../../../$router_id $SCRATCH_AREA/hosts/$host/standby
+        done
+    fi
+    ) &
+done
+wait
+
+echo -e "\nResults:"
+(
+echo "| Host | Active | Standby |"
+for host in `ls $SCRATCH_AREA/hosts`; do
+    active=`ls $SCRATCH_AREA/hosts/$host/active 2>/dev/null| wc -l`
+    standby=`ls $SCRATCH_AREA/hosts/$host/standby 2>/dev/null| wc -l`
+    echo "| $host | $active | $standby |"
+done
+) | column -t > $SCRATCH_AREA/results
+prettytable $SCRATCH_AREA/results
+

@@ -1,0 +1,13 @@
+prettytable ()
+{
+    local in=$1
+
+    len=`head -n 1 $in| wc -c`
+    echo -n "+"; i=$((len-2));
+    while ((--i)); do echo -n '-'; done; echo "+"
+    head -n 1 $in
+    echo -n "+"; i=$((len-2)); while ((--i)); do echo -n '-'; done; echo "+"
+    tail +2 $in| sort -hk1
+    echo -n "+"; i=$((len-2)); while ((--i)); do echo -n '-'; done; echo "+"
+}
+

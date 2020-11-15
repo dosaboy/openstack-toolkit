@@ -1,11 +1,5 @@
 #!/bin/bash -eu
 #
-# Origin: https://gist.github.com/dosaboy/afc40bf31b784a4dd552f7f5569dc7ee
-#
-# Authors:
-#  - edward.hope-morley@canonical.com
-#  - opentastic@gmail.com
-#
 # Description:
 #  Fetch a list of all neutron HA routers check they have only one master
 #  (active) i.e. ensure there are no multi-master routers (according to
@@ -13,6 +7,7 @@
 #
 #  Run this script from a node that can access the Neutron API. Requires
 #  admin credentials.
+#
 SCRATCH_AREA=`mktemp -d`
 
 cleanup ()
@@ -20,21 +15,9 @@ cleanup ()
     rm -rf $SCRATCH_AREA
 }
 
-prettytable ()
-{
-    local in=$1
-
-    len=`head -n 1 $in| wc -c`
-    echo -n "+"; i=$((len-2));
-    while ((--i)); do echo -n '-'; done; echo "+"
-    head -n 1 $in
-    echo -n "+"; i=$((len-2)); while ((--i)); do echo -n '-'; done; echo "+"
-    tail +2 $in| sort -hk1
-    echo -n "+"; i=$((len-2)); while ((--i)); do echo -n '-'; done; echo "+"
-}
-
 trap cleanup KILL INT EXIT
 
+. `dirname $0`/../common/helpers
 . `dirname $0`/../common/openstack_client
 
 ## MAIN
