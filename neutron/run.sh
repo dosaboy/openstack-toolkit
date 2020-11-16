@@ -17,8 +17,14 @@ DESCRIPTION
         NOTE: this is currently the default.
 
     --check-l3ha-router-state-distribution
-
         Show tally of active/standby counts for HA routers per host/l3-agent.
+
+    --token token
+        Optionally provide a token to be used as opposed to fetching a new one.
+
+ENVIRONMENT
+    OS_TOKEN
+        If set to a valid openstack token, this will be used as opposed to fetching a new one.
 
 EOF
 }
