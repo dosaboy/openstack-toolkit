@@ -15,8 +15,8 @@ cleanup ()
 
 trap cleanup KILL EXIT INT
 
-. `dirname $0`/../common/helpers
-. `dirname $0`/../common/openstack_client
+. $LIB_PATH/helpers
+. $LIB_PATH/openstack_client
 
 ## MAIN
 echo "Starting Neutron L3HA router agent balance check..."
