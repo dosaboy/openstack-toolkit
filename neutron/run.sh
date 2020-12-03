@@ -29,8 +29,9 @@ OPTIONS
     --discover-ip-rules-affected-by-lp1891673
         Discover qrouter namespaces that have incorrect ip rules. This issue is described in https://pad.lv/1891673.
 
-      NOTE: beta - no yet stable
-      NOTE: requires network-control interface (snap connect openstack-toolkit:network-control)
+        NOTE: requires network-control interface (snap connect openstack-toolkit:network-control)
+
+        This tool is experimental since it requires access that no existing snapd interface can provide.
 
     COMMON:
 
