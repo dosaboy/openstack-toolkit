@@ -16,7 +16,7 @@ apps:
     plugs: [home, network]
   neutron:
     command: neutron/run.sh
-    plugs: [home, network]
+    plugs: [home, network, network-control]
 parts:
   octavia-checks:
     source: .

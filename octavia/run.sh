@@ -54,8 +54,11 @@ while (($#)); do
     shift
 done
 
+api_plugins=`dirname $0`/api/plugins.d
+agent_plugins=`dirname $0`/agent/plugins.d
+
 if $OPT_ENSURE_LB_MEMBER_SG_RULES || $use_default; then
-    `dirname $0`/api/plugins.d/ensure_member_security_groups $ARG_ENSURE_LB_MEMBER_SG_RULES
+    $api_plugins/ensure_member_security_groups $ARG_ENSURE_LB_MEMBER_SG_RULES
 else
     usage
 fi

@@ -1,0 +1,117 @@
+#!/bin/bash -eu
+#
+# Authors:
+#   - edward.hope-morley@canonical.com
+#
+# Tested on:
+#   - Ubuntu Xenial
+#   - Ubuntu Bionic
+#
+# Description:
+#   Discover invalid ip rules left behind by bug LP 1891673
+#
+# Run this script in any compute node in an Openstack deployment that is using
+# distributed routers (DVR). It looks for issues caused by LP 1891673 and if
+# any are found, prints commands that can be run to clean up.
+#
+# This script is read-only and will not make any changes to the system.
+#
+# NOTE: do 'export DEBUG=true' to get extra info
+
+allocations_file=/var/lib/neutron/fip-priorities
+ns_count=0
+# ip rule priority allocations for floating ips
+declare -A fip_allocations=()
+# table 16 ip rules using allocations for which there are no associated nat rules
+declare -A fixed_ip_rule_priorities_bad=()
+# valid ip rule priority allocations i.e. matches a fip that is in-use
+declare -A fixed_ip_rule_priorities_good_fixed_ip=()
+declare -A fixed_ip_rule_priorities_good_ns=()
+# collection of namespace cleanup commands 
+declare -a cleanup_commands_ns=()
+# collection of priorities file cleanup commands
+declare -a cleanup_commands_remove_from_file=()
+
+if [ -r "$allocations_file" ]; then
+    # create dict of all priority allocations
+    while read line; do
+        fip=`echo $line| sed -rn 's/^([0-9\.]+),.+/\1/p'`
+        pr=`echo $line| sed -rn 's/^[0-9\.]+,(.+)/\1/p'`
+        fip_allocations[$pr]=$fip
+    done < $allocations_file
+fi
+
+# for each qrouter ns find ip rules that have no associated fip
+for ns in `find /var/run/netns/ -name qrouter-\*`; do
+    ((ns_count+=1))
+    ns=`basename $ns`
+    # note: ubuntu xenial iproute2 does not support ip rule per-table listing so we
+    # keep this back-compat.
+    for line in "`sudo ip netns exec $ns ip rule list| egrep ' 16\s*$'`"; do
+        [ -n "$line" ] || continue
+        pr=`echo $line| awk '{print $1}'| tr -d ':'`
+        fixed_ip=`echo $line| awk '{print $3}'`
+        if sudo ip netns exec $ns iptables -t nat -S| egrep -q " ${fixed_ip}(\$|\/)"; then
+            fixed_ip_rule_priorities_good_fixed_ip[$pr]=$fixed_ip
+            fixed_ip_rule_priorities_good_ns[$pr]=$ns
+        else
+            # no nat rules ... looks like a victim of lp 1891673
+            fixed_ip_rule_priorities_bad[${pr}_$fixed_ip]=$ns
+        fi
+    done
+done
+
+# go over faulty rules we have found and assert their are in error
+for line in ${!fixed_ip_rule_priorities_bad[@]}; do
+    pr=`echo $line| tr -s '_' ' '| awk '{print $1}'`
+    fixed_ip=`echo $line| tr -s '_' ' '| awk '{print $2}'`
+    ns=${fixed_ip_rule_priorities_bad[$line]}
+    num=`egrep "^[0-9\.]+,$pr" $allocations_file| wc -l`
+    # for each bad rule detected, check if its priority is in-use anywhere else
+    if ((num<=1)); then
+        cleanup_commands_ns+=( "sudo ip netns exec $ns ip rule delete from $fixed_ip lookup 16" )
+        if ((num)); then
+            fip=${fip_allocations[$pr]}
+            if [[ ${fixed_ip_rule_priorities_good_fixed_ip[$pr]:-null} == null ]]; then
+                cleanup_commands_remove_from_file+=( "$fip,$pr" )
+            else
+                echo "INFO: priority is in-use for a different fip associated with fixed_ip $fixed_ip - skipping priority cleanup"
+            fi
+        else
+            echo "INFO: found no entry for priority '$pr' in $allocations_file but including ip rule in cleanup anyway"
+        fi
+    elif ((num>1)); then
+        echo -n "WARNING: found > 1 entry for priority '$pr' in $allocations_file ("
+        egrep "^[0-9\.]+,$pr" $allocations_file| tr -s '\n' ','
+        echo ") - skipping"
+    fi
+done
+
+if ! ((${#cleanup_commands_ns[@]})) && ! ((${#cleanup_commands_remove_from_file[@]})); then
+    echo "INFO: $ns_count qrouter namespaces checked and nothing to cleanup - exiting."
+    exit 0
+else
+    echo "INFO: $ns_count qrouter namespaces checked and some issues found."
+fi
+
+echo -e "\nIMPORTANT: stop the neutron-l3-agent prior to executing these commands\n"
+
+echo "Execute the following to remove unused rules:"
+if ((${#cleanup_commands_ns[@]})); then
+    for cmd in "${cleanup_commands_ns[@]}"; do
+        echo "  $cmd"
+    done
+else
+    echo "  nothing to do"
+fi
+
+echo -e "\nRemove the following from $allocations_file:"
+if ((${#cleanup_commands_remove_from_file[@]})); then
+    for cmd in "${cleanup_commands_remove_from_file[@]}"; do
+        echo "  $cmd"
+    done
+else
+    echo "  nothing to do"
+fi
+
+echo -e "\nOnce completed you can start the neutron-l3-agent back up\n"

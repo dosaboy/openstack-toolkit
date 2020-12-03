@@ -26,7 +26,11 @@ OPTIONS
 
     AGENT:
 
-    tbd
+    --discover-ip-rules-affected-by-lp1891673
+        Discover qrouter namespaces that have incorrect ip rules. This issue is described in https://pad.lv/1891673.
+
+      NOTE: beta - no yet stable
+      NOTE: requires network-control interface (snap connect openstack-toolkit:network-control)
 
     COMMON:
 
@@ -55,6 +59,10 @@ while (($#)); do
               OPT_CHECK_ROUTER_L3HA_STATE_DIST=true
               use_default=false
               ;;
+        --discover-ip-rules-affected-by-lp1891673)
+              OPT_DISCOVER_LP1891673=true
+              use_default=false
+              ;;
         --help|-h)
               usage
               exit 0
@@ -63,10 +71,15 @@ while (($#)); do
     shift
 done
 
+api_plugins=`dirname $0`/api/plugins.d
+agent_plugins=`dirname $0`/agent/plugins.d
+
 if $OPT_CHECK_ROUTER_L3HA_STATUS || $use_default; then
-    `dirname $0`/api/plugins.d/check_router_l3agent_ha_status $ARG_CHECK_ROUTER_L3HA_STATUS
+    $api_plugins/check_router_l3agent_ha_status $ARG_CHECK_ROUTER_L3HA_STATUS
 elif $OPT_CHECK_ROUTER_L3HA_STATE_DIST; then
-    `dirname $0`/api/plugins.d/check_router_l3agent_ha_state_distribution
+    $api_plugins/check_router_l3agent_ha_state_distribution
+elif $OPT_DISCOVER_LP1891673; then
+    $agent_plugins/discover_ip_rules_affected_by_lp1891673
 else
     usage
 fi
