@@ -47,11 +47,11 @@ for ns in `find /var/run/netns/ -name qrouter-\*`; do
     ns=`basename $ns`
     # note: ubuntu xenial iproute2 does not support ip rule per-table listing so we
     # keep this back-compat.
-    for line in "`sudo ip netns exec $ns ip rule list| egrep ' 16\s*$'`"; do
+    for line in "`ip netns exec $ns ip rule list| egrep ' 16\s*$'`"; do
         [ -n "$line" ] || continue
         pr=`echo $line| awk '{print $1}'| tr -d ':'`
         fixed_ip=`echo $line| awk '{print $3}'`
-        if sudo ip netns exec $ns iptables -t nat -S| egrep -q " ${fixed_ip}(\$|\/)"; then
+        if ip netns exec $ns iptables -t nat -S| egrep -q " ${fixed_ip}(\$|\/)"; then
             fixed_ip_rule_priorities_good_fixed_ip[$pr]=$fixed_ip
             fixed_ip_rule_priorities_good_ns[$pr]=$ns
         else
