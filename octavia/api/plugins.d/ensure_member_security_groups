@@ -41,13 +41,23 @@ get_subnet_cidr ()
     return
 }
 
-get_member_port_uuid ()
+get_member_port_uuid_by_subnet ()
 {
     local m_subnet_id=$1
     local m_address=$2
 
     # should only ever return one port
     jq -r ".ports[]| select(.fixed_ips[]| .subnet_id==\"$m_subnet_id\")| select(.fixed_ips[]| .ip_address==\"$m_address\")| .id" \
+        $SCRATCH_AREA/ports.json
+}
+
+get_member_port_uuid_by_address ()
+{
+    local m_project_id=$1
+    local m_address=$2
+
+    # should only ever return one port
+    jq -r ".ports[]| select(.project_id==\"$m_project_id\")| select(.fixed_ips[]| .ip_address==\"$m_address\")| .id" \
         $SCRATCH_AREA/ports.json
 }
 
@@ -100,6 +110,7 @@ while read -r lb; do
             member="`jq -r \".members[]| select(.id==\\\"$id\\\")\" $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members.json`"
             echo $member| jq -r '.address' > $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$id/address
             echo $member| jq -r '.subnet_id' > $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$id/subnet_id
+            echo $member| jq -r '.project_id' > $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$id/project_id
         done
     done
 done < $SCRATCH_AREA/loadbalancer_list
@@ -125,13 +136,26 @@ while read -r lb; do
             ((stats[members]+=1))
             m_address=`cat $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$member_uuid/address`
             m_subnet_id=`cat $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$member_uuid/subnet_id`
+            m_project_id=`cat $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$member_uuid/project_id`
             subnet_cidr=`get_subnet_cidr $m_subnet_id`
 
-            # find port with this address and subnet_id
-            port_uuid=`get_member_port_uuid $m_subnet_id $m_address`
-            if [[ -z "$port_uuid" ]]; then
-                echo "WARNING: unable to identify member $member_uuid (pool=$pool) port with address=$m_address on subnet=$m_subnet_id - skipping checks for this member"
-                continue
+            # NOTE: Octavia allows members to have an ip address but no
+            #       subnet_id. In this case we would have to search based on
+            #       port project_id and fixed_ip.
+            if [[ $m_subnet_id != null ]]; then
+                # find port with this address and subnet_id
+                port_uuid=`get_member_port_uuid_by_subnet $m_subnet_id $m_address`
+                if [[ -z "$port_uuid" ]]; then
+                    echo "WARNING: unable to identify member $member_uuid (pool=$pool) port with address=$m_address on subnet=$m_subnet_id - skipping checks for this member"
+                    continue
+                fi
+            else
+                # find port with this address and project_id
+                port_uuid=`get_member_port_uuid_by_address $m_project_id $m_address`
+                if [[ -z "$port_uuid" ]]; then
+                    echo "WARNING: unable to identify member $member_uuid (pool=$pool) port with address=$m_address and project_id=$m_project_id - skipping checks for this member"
+                    continue
+                fi
             fi
 
             for listener in `ls $SCRATCH_AREA/loadbalancers/$lb/listeners`; do
