@@ -70,6 +70,11 @@ NEUTRON_EP=`get_endpoint neutron`
 NOVA_EP=`get_endpoint nova`
 OCTAVIA_EP=`get_endpoint octavia`
 
+openstack_server_list ()
+{
+    curl -s $NOVA_EP/servers/detail?all_tenants=True -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+}
+
 openstack_port_list ()
 {
     curl -s $NEUTRON_EP/v2.0/ports -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
