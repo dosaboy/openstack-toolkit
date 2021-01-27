@@ -1,0 +1,47 @@
+#!/bin/bash -eu
+
+OUTPUT_DIR=${OSREPORT_OUTPUT_DIR}/neutron_info
+mkdir -p ${OUTPUT_DIR}
+
+NETWORKS_OUTPUT_DIR=${OUTPUT_DIR}/networks
+mkdir -p ${NETWORKS_OUTPUT_DIR}
+openstack network list > ${NETWORKS_OUTPUT_DIR}/list
+for i in $(openstack network list -c ID -f value); do
+    mkdir -p ${NETWORKS_OUTPUT_DIR}/${i}
+    openstack network show ${i} > ${NETWORKS_OUTPUT_DIR}/${i}/info
+    mkdir -p ${NETWORKS_OUTPUT_DIR}/${i}/ports
+    openstack port list --network ${i} > ${NETWORKS_OUTPUT_DIR}/${i}/ports/list
+    for j in $(openstack port list --network ${i} -c ID -f value); do
+        ln -rs ${OUTPUT_DIR}/ports/${j} ${NETWORKS_OUTPUT_DIR}/${i}/ports/${j}
+    done
+done
+
+SUBNETS_OUTPUT_DIR=${OUTPUT_DIR}/subnets
+mkdir -p ${SUBNETS_OUTPUT_DIR}
+openstack subnet list > ${SUBNETS_OUTPUT_DIR}/list
+for i in $(openstack subnet list -c ID -f value); do
+    mkdir -p ${SUBNETS_OUTPUT_DIR}/${i}
+    openstack subnet show ${i} > ${SUBNETS_OUTPUT_DIR}/${i}/info
+done
+
+SECGROUP_OUTPUT_DIR=${OUTPUT_DIR}/secgroups
+mkdir -p ${SECGROUP_OUTPUT_DIR}
+openstack security group list > ${SECGROUP_OUTPUT_DIR}/list
+for i in $(openstack security group list -c ID -f value); do
+    mkdir -p ${SECGROUP_OUTPUT_DIR}/${i}
+    openstack security group show ${i} > ${SECGROUP_OUTPUT_DIR}/${i}/info
+done
+
+ROUTERS_OUTPUT_DIR=${OUTPUT_DIR}/routers
+mkdir -p ${ROUTERS_OUTPUT_DIR}
+openstack router list > ${ROUTERS_OUTPUT_DIR}/list
+for i in $(openstack router list -c ID -f value); do
+    mkdir -p ${ROUTERS_OUTPUT_DIR}/${i}
+    openstack router show ${i} > ${ROUTERS_OUTPUT_DIR}/${i}/info
+
+    mkdir -p ${ROUTERS_OUTPUT_DIR}/${i}/ports
+    openstack port list --router ${i} > ${ROUTERS_OUTPUT_DIR}/${i}/ports/list
+    for j in $(openstack port list --router ${i} -c ID -f value); do
+        ln -rs ${OUTPUT_DIR}/ports/${j} ${ROUTERS_OUTPUT_DIR}/${i}/ports/${j}
+    done
+done

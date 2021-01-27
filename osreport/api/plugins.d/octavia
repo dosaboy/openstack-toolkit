@@ -1,0 +1,85 @@
+#!/bin/bash -eu
+
+OUTPUT_DIR=${OSREPORT_OUTPUT_DIR}/octavia_info
+mkdir -p ${OUTPUT_DIR}
+
+openstack loadbalancer list > ${OUTPUT_DIR}/openstack_loadbalancer_list.out
+mkdir -p ${OUTPUT_DIR}/loadbalancer_info
+mkdir -p ${OUTPUT_DIR}/loadbalancer_stats
+mkdir -p ${OUTPUT_DIR}/loadbalancer_status
+for i in $(openstack loadbalancer list -c id -f value); do
+    openstack loadbalancer show ${i} > ${OUTPUT_DIR}/loadbalancer_info/${i}.out
+    openstack loadbalancer stats show ${i} > ${OUTPUT_DIR}/loadbalancer_stats/${i}.out
+    openstack loadbalancer status show ${i} > ${OUTPUT_DIR}/loadbalancer_status/${i}.out
+done
+
+openstack loadbalancer amphora list > ${OUTPUT_DIR}/openstack_loadbalancer_amphora_list.out
+mkdir -p ${OUTPUT_DIR}/amphora_info
+mkdir -p ${OUTPUT_DIR}/amphora_stats
+for i in $(openstack loadbalancer amphora list -c id -f value); do
+    openstack loadbalancer amphora show ${i} > ${OUTPUT_DIR}/amphora_info/${i}.out
+    openstack loadbalancer amphora stats show ${i} > ${OUTPUT_DIR}/amphora_stats/${i}.out
+done
+
+openstack loadbalancer availabilityzone list > ${OUTPUT_DIR}/openstack_loadbalancer_availabilityzone_list.out
+mkdir -p ${OUTPUT_DIR}/availabilityzone_info
+for i in $(openstack loadbalancer availabilityzone list -c id -f value); do
+    openstack loadbalancer availabilityzone show ${i} > ${OUTPUT_DIR}/availabilityzone_info/${i}.out
+done
+
+openstack loadbalancer flavor list > ${OUTPUT_DIR}/openstack_loadbalancer_flavor_list.out
+mkdir -p ${OUTPUT_DIR}/flavor_info
+for i in $(openstack loadbalancer flavor list -c id -f value); do
+    openstack loadbalancer flavor show ${i} > ${OUTPUT_DIR}/flavor_info/${i}.out
+done
+
+openstack loadbalancer flavorprofile list > ${OUTPUT_DIR}/openstack_loadbalancer_flavorprofile_list.out
+mkdir -p ${OUTPUT_DIR}/flavorprofile_info
+for i in $(openstack loadbalancer flavorprofile list -c id -f value); do
+    openstack loadbalancer flavorprofile show ${i} > ${OUTPUT_DIR}/flavorprofile_info/${i}.out
+done
+
+openstack loadbalancer healthmonitor list > ${OUTPUT_DIR}/openstack_loadbalancer_healthmonitor_list.out
+mkdir -p ${OUTPUT_DIR}/healthmonitor_info
+for i in $(openstack loadbalancer healthmonitor list -c id -f value); do
+    openstack loadbalancer healthmonitor show ${i} > ${OUTPUT_DIR}/healthmonitor_info/${i}.out
+done
+
+openstack loadbalancer l7policy list > ${OUTPUT_DIR}/openstack_loadbalancer_l7policy_list.out
+mkdir -p ${OUTPUT_DIR}/l7policy_info
+for i in $(openstack loadbalancer l7policy list -c id -f value); do
+    openstack loadbalancer l7policy show ${i} > ${OUTPUT_DIR}/l7policy_info/${i}.out
+    openstack loadbalancer l7rule list ${i} > ${OUTPUT_DIR}/l7policy_info/${i}_rules.out
+    mkdir -p ${OUTPUT_DIR}/l7policy_info/${i}_rules_info
+    mkdir -p ${OUTPUT_DIR}/l7rule_info
+    for j in $(openstack loadbalancer l7rule list ${i} -c id -f value); do
+        openstack loadbalancer l7rule show ${i} ${j} > ${OUTPUT_DIR}/l7rule_info/${j}.out
+    done
+done
+
+openstack loadbalancer listener list > ${OUTPUT_DIR}/openstack_loadbalancer_listener_list.out
+mkdir -p ${OUTPUT_DIR}/listener_info
+mkdir -p ${OUTPUT_DIR}/listener_stats
+for i in $(openstack loadbalancer listener list -c id -f value); do
+    openstack loadbalancer listener show ${i} > ${OUTPUT_DIR}/listener_info/${i}.out
+    openstack loadbalancer listener stats show ${i} > ${OUTPUT_DIR}/listener_stats/${i}.out
+done
+
+openstack loadbalancer pool list > ${OUTPUT_DIR}/openstack_loadbalancer_pool_list.out
+mkdir -p ${OUTPUT_DIR}/pool_info
+for i in $(openstack loadbalancer pool list -c id -f value); do
+    openstack loadbalancer pool show ${i} > ${OUTPUT_DIR}/pool_info/${i}.out
+    openstack loadbalancer member list ${i} > ${OUTPUT_DIR}/pool_info/${i}_member_list.out
+    mkdir -p ${OUTPUT_DIR}/pool_info/${i}_member_list_info
+    for j in $(openstack loadbalancer member list ${i} -c id -f value); do
+        openstack loadbalancer member show ${i} ${j} > ${OUTPUT_DIR}/pool_info/${i}_member_list_info/${j}.out
+    done
+done
+
+openstack loadbalancer quota defaults show > ${OUTPUT_DIR}/openstack_loadbalancer_quota_defaults_show.out
+
+openstack loadbalancer quota list > ${OUTPUT_DIR}/openstack_loadbalancer_quota_list.out
+mkdir -p ${OUTPUT_DIR}/quota_info
+for i in $(openstack loadbalancer quota list -c project_id -f value); do
+    openstack loadbalancer quota show ${i} > ${OUTPUT_DIR}/quota_info/${i}.out
+done
