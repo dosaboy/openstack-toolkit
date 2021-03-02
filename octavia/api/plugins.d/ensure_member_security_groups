@@ -67,6 +67,8 @@ get_member_port_uuid_by_address ()
         $SCRATCH_AREA/ports.json
 }
 
+set -x
+(
 mkdir -p $SCRATCH_AREA/{results,ports,loadbalancers,pools,listeners}
 
 echo -n "INFO: pre-fetching information..."
@@ -282,4 +284,9 @@ if `ls $SCRATCH_AREA/results/*/errors &>/dev/null`; then
 else
     echo "INFO: ${stats[loadbalancers]} loadbalancers and ${stats[members]} members checked - no issues found."
 fi
+) 2> $SCRATCH_AREA/openstack-toolkit-debug.log
+set +x
+
+tar -czf openstack-toolkit-debug.tgz $SCRATCH_AREA
+echo "Debug data at `pwd`/openstack-toolkit-debug.tgz"
 
