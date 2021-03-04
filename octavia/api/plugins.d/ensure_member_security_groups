@@ -72,6 +72,14 @@ openstack_port_list > $SCRATCH_AREA/ports.json &
 # Get all LBs and allow single loadbalancer override
 echo -n "[loadbalancers]"
 if [ -n "$LOADBALANCER" ]; then
+    # check that it exists
+    openstack_loadbalancer_show $LOADBALANCER > $SCRATCH_AREA/loadbalancer_show
+    if [[ `jq .faultcode $SCRATCH_AREA/loadbalancer_show` != null ]]; then
+        message="`jq .faultstring $SCRATCH_AREA/loadbalancer_show`"
+        wait
+        echo -e "\nERROR: $message"
+        exit 1
+    fi
     echo "$LOADBALANCER" > $SCRATCH_AREA/loadbalancer_list
 else
     openstack_loadbalancer_list > $SCRATCH_AREA/loadbalancers.json &

@@ -130,6 +130,12 @@ openstack_loadbalancer_list ()
     curl -s $OCTAVIA_EP/v2.0/lbaas/loadbalancers -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
 }
 
+openstack_loadbalancer_show ()
+{
+    local uuid=${1:-}
+    curl -s $OCTAVIA_EP/v2.0/lbaas/loadbalancers/$uuid -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+}
+
 openstack_loadbalancer_pool_list ()
 {
     local loadbalancer=${1:-}

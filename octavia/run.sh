@@ -2,6 +2,7 @@
 export LIB_PATH=$(dirname $0)/../lib
 OPT_ENSURE_LB_MEMBER_SG_RULES=true  # default to true since we have no other checks yet
 ARG_ENSURE_LB_MEMBER_SG_RULES=
+ARG_TMP=
 
 usage ()
 {
@@ -50,6 +51,12 @@ while (($#)); do
               usage
               exit 0
               ;;
+        *)
+              if [[ ${1:0:2} != "--" ]]; then
+                  # use this an arg to the default action if non specified
+                  ARG_TMP=$1
+              fi
+              ;;
     esac
     shift
 done
@@ -58,6 +65,9 @@ api_plugins=`dirname $0`/api/plugins.d
 agent_plugins=`dirname $0`/agent/plugins.d
 
 if $OPT_ENSURE_LB_MEMBER_SG_RULES || $use_default; then
+    if [[ -z $ARG_ENSURE_LB_MEMBER_SG_RULES ]] && [[ -n $ARG_TMP ]]; then
+        ARG_ENSURE_LB_MEMBER_SG_RULES=$ARG_TMP
+    fi
     $api_plugins/ensure_member_security_groups $ARG_ENSURE_LB_MEMBER_SG_RULES
 else
     usage
