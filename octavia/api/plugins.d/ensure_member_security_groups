@@ -12,6 +12,12 @@ cleanup ()
 trap cleanup KILL INT EXIT
 
 LOADBALANCER=${1:-}
+declare -A LISTENER_PROTOCOL_SG_MAP=(
+    [HTTP]=tcp
+    [HTTPS]=tcp
+    [SCTP]=sctp
+    [UDP]=udp
+)
 
 .  $LIB_PATH/openstack_client
 
@@ -119,6 +125,7 @@ while read -r lb; do
             echo $member| jq -r '.address' > $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$id/address
             echo $member| jq -r '.subnet_id' > $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$id/subnet_id
             echo $member| jq -r '.project_id' > $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$id/project_id
+            echo $member| jq -r '.protocol_port' > $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$id/protocol_port
         done
     done
 done < $SCRATCH_AREA/loadbalancer_list
@@ -145,6 +152,7 @@ while read -r lb; do
             m_address=`cat $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$member_uuid/address`
             m_subnet_id=`cat $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$member_uuid/subnet_id`
             m_project_id=`cat $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$member_uuid/project_id`
+            m_protocol_port=`cat $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$member_uuid/protocol_port`
             subnet_cidr=`get_subnet_cidr $m_subnet_id`
 
             # NOTE: Octavia allows members to have an ip address but no
@@ -167,7 +175,7 @@ while read -r lb; do
             fi
 
             for listener in `ls $SCRATCH_AREA/loadbalancers/$lb/listeners`; do
-                listener_port=`cat $SCRATCH_AREA/loadbalancers/$lb/listeners/$listener/port`
+                listener_protocol=`cat $SCRATCH_AREA/loadbalancers/$lb/listeners/$listener/protocol`
                 declare -a security_groups_checked=()
 
                 found=false
@@ -181,15 +189,26 @@ while read -r lb; do
                         # Look for a rule that contains a match for all of the following
                         port_range_max=`jq -r '.security_group_rule.port_range_max' $rule`
                         port_range_min=`jq -r '.security_group_rule.port_range_min' $rule`
+                        protocol=`jq -r '.security_group_rule.protocol' $rule`
                         remote_ip_prefix=`jq -r '.security_group_rule.remote_ip_prefix' $rule`
                         direction=`jq -r '.security_group_rule.direction' $rule`
 
                         # ensure port range
                         port_open=false
-                        if [[ "$port_range_min" != "null" ]] && [[ "$port_range_max" != "null" ]]; then
-                            if ((listener_port>=port_range_min)) && ((listener_port<=port_range_max)); then
+                        if [[ "$port_range_min" = "null" ]] && [[ "$port_range_max" = "null" ]]; then
+                            port_open=true                            
+                        elif [[ "$port_range_min" != "null" ]] && [[ "$port_range_max" != "null" ]]; then
+                            if ((m_protocol_port>=port_range_min)) && ((m_protocol_port<=port_range_max)); then
                                 port_open=true
                             fi
+                        fi
+
+                        # ensure protocol
+                        protocol_allowed=false
+                        if [[ "$protocol" = "null" ]]; then
+                            protocol_allowed=true                            
+                        elif [[ "$protocol" = ${LISTENER_PROTOCOL_SG_MAP[$listener_protocol]:-null} ]]; then
+                            protocol_allowed=true
                         fi
 
                         # following checks only apply iff the port is open i.e. they must all be within the same rule
@@ -210,7 +229,7 @@ while read -r lb; do
                         fi
 
                         # Have we got a match for all items in this rule?
-                        if $port_open && $valid_subnet_range; then
+                        if $protocol_allowed && $port_open && $valid_subnet_range; then
                             found=true
                             break
                         fi
@@ -222,7 +241,8 @@ while read -r lb; do
                     error_path=$SCRATCH_AREA/results/$lb/errors/$error_idx
                     mkdir -p $error_path/{security_group,loadbalancer}
                     echo "$pool" > $error_path/loadbalancer/pool
-                    echo "$listener_port" > $error_path/loadbalancer/protocol_port
+                    echo "$m_protocol_port" > $error_path/loadbalancer/protocol_port
+                    echo "$listener_protocol" > $error_path/loadbalancer/protocol
                     echo "$listener" > $error_path/loadbalancer/listener
                     echo "$member_uuid" > $error_path/loadbalancer/member
                     echo "$port_uuid" > $error_path/loadbalancer/member_vm_port
