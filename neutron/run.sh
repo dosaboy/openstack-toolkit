@@ -3,6 +3,7 @@ export LIB_PATH=$(dirname $0)/../lib
 OPT_CHECK_ROUTER_L3HA_STATUS=false
 ARG_CHECK_ROUTER_L3HA_STATUS=
 OPT_CHECK_ROUTER_L3HA_STATE_DIST=false
+ARG_TMP=
 
 usage ()
 {
@@ -68,6 +69,12 @@ while (($#)); do
               usage
               exit 0
               ;;
+        *)
+              if [[ ${1:0:2} != "--" ]]; then
+                  # use this an arg to the default action if non specified
+                  ARG_TMP=$1
+              fi
+              ;;
     esac
     shift
 done
@@ -76,6 +83,9 @@ api_plugins=`dirname $0`/api/plugins.d
 agent_plugins=`dirname $0`/agent/plugins.d
 
 if $OPT_CHECK_ROUTER_L3HA_STATUS || $use_default; then
+    if [[ -z $ARG_CHECK_ROUTER_L3HA_STATUS ]] && [[ -n $ARG_TMP ]]; then
+        ARG_CHECK_ROUTER_L3HA_STATUS=$ARG_TMP
+    fi
     $api_plugins/check_router_l3agent_ha_status $ARG_CHECK_ROUTER_L3HA_STATUS
 elif $OPT_CHECK_ROUTER_L3HA_STATE_DIST; then
     $api_plugins/check_router_l3agent_ha_state_distribution

@@ -10,7 +10,7 @@ cat << EOF
 USAGE: openstack-toolkit.octavia OPTIONS
 
 DESCRIPTION
-    A set of tools is provided here for Neutron. Tools are categorised as ones to be run against the Openstack API or on a host running Neutron services/agents.
+    A set of tools is provided here for Octavia. Tools are categorised as ones to be run against the Openstack API or on a host running Octavia services/agents.
 
 OPTIONS
 
@@ -23,7 +23,7 @@ OPTIONS
 
     AGENT:
 
-    tbd
+    none supported yet.
 
     COMMON:
 
