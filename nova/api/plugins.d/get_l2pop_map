@@ -1,0 +1,174 @@
+#!/bin/bash -u
+#
+# Create a map of networks, ports and hypervisors.
+#
+OUTPUT_FILE_JSON=${1:-""}
+[[ -n $OUTPUT_FILE_JSON ]] || OUTPUT_FILE_JSON=`mktemp`
+SCRATCH_AREA=`mktemp -d`
+LOCK_PATH=$SCRATCH_AREA/lock
+MAP=$SCRATCH_AREA/map
+MAX_PARALLEL_JOBS=16
+
+cleanup ()
+{
+    rm -rf $SCRATCH_AREA
+}
+
+trap cleanup KILL INT EXIT
+
+.  $LIB_PATH/openstack_client
+
+job_wait ()
+{
+    local current_jobs=$1
+
+    if ((current_jobs)) && ! ((current_jobs % MAX_PARALLEL_JOBS)); then
+        return 0
+    else
+        return 1
+    fi
+}
+
+_create_networks_host_entry_locked ()
+{
+    local network_id=$1
+    local host=$2
+
+    ( flock -e 200
+    mkdir -p $MAP/networks/$network_id/hosts
+    touch $MAP/networks/$network_id/hosts/$host
+    # force to always be a list even if only one entry
+    touch $MAP/networks/$network_id/hosts/__FORCE_LIST__
+    ) 200>$LOCK_PATH
+}
+
+get_network_info ()
+{
+    local id=$1
+    local host=
+
+    mkdir -p $SCRATCH_AREA/servers/$id
+    jq -r ".servers[] | select(.id==\"$id\")" $SCRATCH_AREA/all_instances > $SCRATCH_AREA/servers/$id/server
+    host=`jq -r '."OS-EXT-SRV-ATTR:host"' $SCRATCH_AREA/servers/$id/server`
+    [[ -n $host ]] && [[ $host != null ]] || return
+    status=`jq -r '.status' $SCRATCH_AREA/servers/$id/server`
+    [[ -n $status ]] && { [[ $status == ACTIVE ]] || [[ $status == SHUTOFF ]]; } || return
+
+    jq -r ".ports | map(select(.device_id==\"$id\"))" $SCRATCH_AREA/all_ports > $SCRATCH_AREA/servers/$id/ports
+    [[ -s $SCRATCH_AREA/servers/$id/ports ]] || return
+    for port in `jq -r .[].id $SCRATCH_AREA/servers/$id/ports`; do
+        network_id=`jq -r ".[] | select(.id==\"$port\")| .network_id" $SCRATCH_AREA/servers/$id/ports`
+        mac_address=`jq -r ".[] | select(.id==\"$port\")| .mac_address" $SCRATCH_AREA/servers/$id/ports`
+        _create_networks_host_entry_locked $network_id $host
+
+        mkdir -p $MAP/ports/$port/{network,mac_address}
+        touch $MAP/ports/$port/network/$network_id
+        touch $MAP/ports/$port/mac_address/$mac_address
+    done
+}
+
+_fs_to_json ()
+{
+    # Walk the patch and display as json. A directory maybe contain files or
+    # a directory but not both. If a directory contains a single file it is
+    # represented as "directory": "file" otherwise
+    # "directory": ["file1", "file2"].
+    #
+    # Directories that contain a single file called __FORCE_LIST__ will be
+    # forced to a list containing one file.
+    local root=$1
+    local depth=${2:-0}
+    local indent=${3:-""}
+    local has_dirs=false
+    local has_files=false
+    local num_files=
+
+    ((depth<10)) || return
+    ((depth+=1))
+
+    num_files=`find $root/* -maxdepth 0 -type f| wc -l`
+    for f in `find $root/* -maxdepth 0 -type f`; do
+        if ! $has_files; then
+            if ((num_files>1)); then
+                echo -n "["
+            fi
+            has_files=true
+        fi
+        echo -n "\"`basename $f`\", "
+    done
+    if $has_files; then
+        echo -n "__LIST_END__"
+        if ((num_files>1)); then
+            echo -n "]"
+        fi
+        return
+    fi
+
+    for d in `find $root/* -maxdepth 0 -type d| egrep -v "$root$"`; do
+        if ! $has_dirs; then
+            if [[ -n $indent ]]; then
+                echo -en "\n${indent}{"
+            else
+                echo -n "{"
+            fi
+            has_dirs=true
+        fi
+        if ((`find $d/* -maxdepth 0| egrep -v "$d$"| wc -l`)); then
+            echo -en "\"`basename $d`\": "
+            _fs_to_json $d $depth "$indent  "
+        else
+            echo -n "`basename $d`\": null"
+        fi
+        echo -n ", "
+    done
+    $has_dirs && echo -n "__LIST_END__}"
+}
+
+fs_to_json () {
+    _fs_to_json $@| sed -r -e 's/, __LIST_END__//g' \
+                           -e 's/, "__FORCE_LIST__"//g' \
+                           -e 's/"__FORCE_LIST__",//g'
+}
+
+echo -n "INFO: fetching "
+
+echo -n "[instances]"
+openstack_server_list_long > $SCRATCH_AREA/all_instances &
+echo -n "[ports]"
+openstack_port_list > $SCRATCH_AREA/all_ports &
+echo -n "..."
+wait
+echo "done."
+
+echo -n "INFO: creating l2pop map..."
+current_jobs=0
+for server_id in `jq -r .servers[].id $SCRATCH_AREA/all_instances`; do
+    get_network_info $server_id &
+    job_wait $((++current_jobs)) && wait
+done
+wait
+echo "done."
+
+echo -n "INFO: converting to json..."
+[[ -d $MAP ]] && fs_to_json $MAP | jq . > $OUTPUT_FILE_JSON
+echo "done."
+echo "INFO: map saved at $OUTPUT_FILE_JSON"
+
+echo "INFO: example usage:"
+cat << EOF
+------------------------------------✂------------------------------------------
+
+# Get network used by port
+port=<port-uuid>
+port_net=\`jq -r ".ports| to_entries[]| select(.key | match(\"^\$port.*\"))| .value.network" $OUTPUT_FILE_JSON\`
+
+# Get hosts used by network
+port_net_hosts=\`jq -r ".networks| to_entries[]| select(.key==\"\$port_net\")| .value.hosts[]" $OUTPUT_FILE_JSON\`
+
+# NOTE: l2pop flows will/should not contain entries for the host they are configured on so that needs to be excluded from the results.
+
+# Get result as number of hosts
+net_num_remote_hosts=\`echo "\$port_net_hosts"| wc -l\`
+
+------------------------------------✂------------------------------------------
+EOF

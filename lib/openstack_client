@@ -70,6 +70,8 @@ NEUTRON_EP=`get_endpoint neutron`
 NOVA_EP=`get_endpoint nova`
 OCTAVIA_EP=`get_endpoint octavia`
 
+#### NOVA ######################################################################
+
 openstack_server_list_long () 
 {
     # use markers to ensure we get the full list of instances and not capped at the the api max (1000)
@@ -97,9 +99,28 @@ openstack_server_list ()
     openstack_server_list_long| jq -r .servers[].id
 }
 
+openstack_compute_service_list ()
+{
+    curl -s $NOVA_EP/os-services -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+}
+
+
+#### NEUTRON ###################################################################
+
+openstack_network_agent_list ()
+{
+    curl -s $NEUTRON_EP/v2.0/agents -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+}
+
 openstack_port_list ()
 {
-    curl -s $NEUTRON_EP/v2.0/ports -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+    local device_id=${1:-""}
+
+    if [[ -n $device_id ]]; then
+        curl -s $NEUTRON_EP/v2.0/ports?device_id=$device_id -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+    else
+        curl -s $NEUTRON_EP/v2.0/ports -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+    fi
 }
 
 openstack_router_list ()
@@ -159,6 +180,9 @@ openstack_security_group_rule_show ()
     curl -s $NEUTRON_EP/v2.0/security-group-rules/$uuid -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
 }
 
+
+#### OCTAVIA ###################################################################
+
 openstack_loadbalancer_list ()
 {
     curl -s $OCTAVIA_EP/v2.0/lbaas/loadbalancers -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
@@ -201,7 +225,6 @@ openstack_loadbalancer_listener_show ()
     local uuid=$1
     curl -s $OCTAVIA_EP/v2.0/lbaas/listeners/$uuid -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
 }
-
 
 openstack_loadbalancer_member_show ()
 {
