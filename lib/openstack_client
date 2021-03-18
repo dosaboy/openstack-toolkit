@@ -70,9 +70,31 @@ NEUTRON_EP=`get_endpoint neutron`
 NOVA_EP=`get_endpoint nova`
 OCTAVIA_EP=`get_endpoint octavia`
 
-openstack_server_list ()
+openstack_server_list_long () 
 {
-    curl -s $NOVA_EP/servers/detail?all_tenants=True -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+    # use markers to ensure we get the full list of instances and not capped at the the api max (1000)
+    local marker=${1:-""}
+    local new_marker=
+    local output_tmp=`mktemp`
+
+    if [[ -z "$marker" ]]; then
+        curl -s "$NOVA_EP/servers/detail?all_tenants=True" -H "X-OpenStack-Nova-API-Version: 2.40" -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"| tee $output_tmp
+    else
+        curl -s "$NOVA_EP/servers/detail?all_tenants=True&marker=$marker" -H "X-OpenStack-Nova-API-Version: 2.40" -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"| tee $output_tmp
+    fi
+
+    new_marker=`jq -r .servers[].id $output_tmp| tail -n 1`
+    rm $output_tmp
+    if [[ -z $new_marker ]] || [[ $marker == $new_marker ]]; then
+        return
+    fi
+
+    openstack_server_list_long $new_marker
+}
+
+openstack_server_list () 
+{
+    openstack_server_list_long| jq -r .servers[].id
 }
 
 openstack_port_list ()
