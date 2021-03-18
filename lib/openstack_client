@@ -104,12 +104,24 @@ openstack_port_list ()
 
 openstack_router_list ()
 {
-    curl -s $NEUTRON_EP/v2.0/routers -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+    local router_id=${1:-""}
+    
+    if [[ -n $router_id ]]; then
+        curl -s $NEUTRON_EP/v2.0/routers?id=$router_id -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+    else
+        curl -s $NEUTRON_EP/v2.0/routers -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+    fi
+}
+
+openstack_router_show ()
+{
+    local router_id=$1
+    curl -s $NEUTRON_EP/v2.0/routers/$router_id -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
 }
 
 openstack_router_l3agent_list ()
 {
-    router_id=$1
+    local router_id=$1
     curl -s $NEUTRON_EP/v2.0/routers/$router_id/l3-agents -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
 }
 

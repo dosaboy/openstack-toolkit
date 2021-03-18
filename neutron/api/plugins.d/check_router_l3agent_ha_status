@@ -9,6 +9,7 @@
 #  admin credentials.
 #
 SCRATCH_AREA=`mktemp -d`
+ARG_ROUTER=${1:-""}
 
 cleanup ()
 {
@@ -24,7 +25,7 @@ trap cleanup KILL INT EXIT
 echo "Starting Neutron L3HA router check..."
 
 echo -n " * fetching routers..."
-openstack_router_list > $SCRATCH_AREA/routers.json
+openstack_router_list $ARG_ROUTER > $SCRATCH_AREA/routers.json    
 echo "done."
 
 mkdir -p $SCRATCH_AREA/results
