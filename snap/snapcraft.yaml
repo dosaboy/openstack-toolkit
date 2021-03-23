@@ -9,6 +9,8 @@ base: core18
 environment:
   TMPDIR: $SNAP_COMMON/tmp
   REQUESTS_CA_BUNDLE: /etc/ssl/certs/ca-certificates.crt  # need this due to pip python-certifi used by python-openstackclient
+  LC_ALL: C.UTF-8
+  LANG: C.UTF-8
 
 apps:
   octavia:
