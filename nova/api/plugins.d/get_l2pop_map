@@ -42,29 +42,22 @@ _create_networks_host_entry_locked ()
     ) 200>$LOCK_PATH
 }
 
-get_network_info ()
+get_port_info ()
 {
-    local id=$1
-    local host=
+    readarray -t port_details<<<`jq -r ".ports | .[] | select(.id==\"$port\")| .network_id , .mac_address , .\"binding:host_id\"" $SCRATCH_AREA/all_ports`
 
-    mkdir -p $SCRATCH_AREA/servers/$id
-    jq -r ".servers[] | select(.id==\"$id\")" $SCRATCH_AREA/all_instances > $SCRATCH_AREA/servers/$id/server
-    host=`jq -r '."OS-EXT-SRV-ATTR:host"' $SCRATCH_AREA/servers/$id/server`
-    [[ -n $host ]] && [[ $host != null ]] || return
-    status=`jq -r '.status' $SCRATCH_AREA/servers/$id/server`
-    [[ -n $status ]] && { [[ $status == ACTIVE ]] || [[ $status == SHUTOFF ]]; } || return
+    network_id=${port_details[0]}
+    mac_address=${port_details[1]}
+    mkdir -p $MAP/ports/$port/{network,mac_address}
+    touch $MAP/ports/$port/network/$network_id
+    touch $MAP/ports/$port/mac_address/$mac_address
 
-    jq -r ".ports | map(select(.device_id==\"$id\"))" $SCRATCH_AREA/all_ports > $SCRATCH_AREA/servers/$id/ports
-    [[ -s $SCRATCH_AREA/servers/$id/ports ]] || return
-    for port in `jq -r .[].id $SCRATCH_AREA/servers/$id/ports`; do
-        network_id=`jq -r ".[] | select(.id==\"$port\")| .network_id" $SCRATCH_AREA/servers/$id/ports`
-        mac_address=`jq -r ".[] | select(.id==\"$port\")| .mac_address" $SCRATCH_AREA/servers/$id/ports`
-        _create_networks_host_entry_locked $network_id $host
-
-        mkdir -p $MAP/ports/$port/{network,mac_address}
-        touch $MAP/ports/$port/network/$network_id
-        touch $MAP/ports/$port/mac_address/$mac_address
-    done
+    if [ ${#port_details[@]} -eq 3 ]; then
+        binding_host_id=${port_details[2]}
+        mkdir -p $MAP/ports/$port/binding_host_id
+        touch $MAP/ports/$port/binding_host_id/$binding_host_id
+        _create_networks_host_entry_locked $network_id $binding_host_id
+    fi
 }
 
 _fs_to_json ()
@@ -142,8 +135,8 @@ echo "done."
 
 echo -n "INFO: creating l2pop map..."
 current_jobs=0
-for server_id in `jq -r .servers[].id $SCRATCH_AREA/all_instances`; do
-    get_network_info $server_id &
+for port in `jq -r ".ports | .[] | .id" $SCRATCH_AREA/all_ports`; do
+    get_port_info $port &
     job_wait $((++current_jobs)) && wait
 done
 wait
