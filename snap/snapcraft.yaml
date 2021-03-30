@@ -19,9 +19,6 @@ apps:
   neutron:
     command: neutron/run.sh
     plugs: [home, network, network-control]
-  nova:
-    command: nova/run.sh
-    plugs: [home, network]
 parts:
   octavia-checks:
     source: .
