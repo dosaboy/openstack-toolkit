@@ -37,10 +37,10 @@ for router in `jq -r '.routers[]| select(.ha==true)| select(.admin_state_up==tru
     num_active=`jq -r '.agents| map(select(.ha_state=="active"))| length' $SCRATCH_AREA/$router/l3agents.json`
     unexpected=false
     if ((num_active>1)); then
-        echo -e "\nRouter $router has unexpected ha_state (multiple active)" >> $SCRATCH_AREA/results/$router_id
+        echo -e "\nRouter $router has unexpected ha_state (multiple active)" >> $SCRATCH_AREA/results/$router
         unexpected=true
     elif ((num_active==0)); then
-        echo e "\nRouter $router has unexpected ha_state (none active)" >> $SCRATCH_AREA/results/$router_id
+        echo e "\nRouter $router has unexpected ha_state (none active)" >> $SCRATCH_AREA/results/$router
         unexpected=true
     fi
 
@@ -64,10 +64,10 @@ for router in `jq -r '.routers[]| select(.ha==true)| select(.admin_state_up==tru
         ha_state=`jq -r ".agents[]| select(.id==\"$id\")| .ha_state" $SCRATCH_AREA/$router/l3agents.json`
         echo " $ha_state |"
     done
-    ) | column -t > $SCRATCH_AREA/results/$router_id.table.tmp
-    prettytable $SCRATCH_AREA/results/$router_id.table.tmp > $SCRATCH_AREA/results/$router_id.table
-    cat $SCRATCH_AREA/results/$router_id.table >> $SCRATCH_AREA/results/$router_id
-    rm $SCRATCH_AREA/results/$router_id.table*
+    ) | column -t > $SCRATCH_AREA/results/$router.table.tmp
+    prettytable $SCRATCH_AREA/results/$router.table.tmp > $SCRATCH_AREA/results/$router.table
+    cat $SCRATCH_AREA/results/$router.table >> $SCRATCH_AREA/results/$router
+    rm $SCRATCH_AREA/results/$router.table*
 done
 
 num_errors=`ls $SCRATCH_AREA/results| wc -l`
