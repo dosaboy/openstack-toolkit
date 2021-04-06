@@ -40,7 +40,7 @@ for router in `jq -r '.routers[]| select(.ha==true)| select(.admin_state_up==tru
         echo -e "\nRouter $router has unexpected ha_state (multiple active)" >> $SCRATCH_AREA/results/$router
         unexpected=true
     elif ((num_active==0)); then
-        echo e "\nRouter $router has unexpected ha_state (none active)" >> $SCRATCH_AREA/results/$router
+        echo -e "\nRouter $router has unexpected ha_state (none active)" >> $SCRATCH_AREA/results/$router
         unexpected=true
     fi
 
