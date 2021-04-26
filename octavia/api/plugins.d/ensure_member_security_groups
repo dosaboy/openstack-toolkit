@@ -3,23 +3,7 @@
 # Scans all Octavia loadbalancers, checks that all member ports' have a security
 # group rule containing a rule that opens the port being loadbalanced.
 #
-SCRATCH_AREA=`mktemp -d`
-cleanup ()
-{
-    rm -rf $SCRATCH_AREA
-}
-
-trap cleanup KILL INT EXIT
-
-LOADBALANCER=${1:-}
-declare -A LISTENER_PROTOCOL_SG_MAP=(
-    [HTTP]=tcp
-    [HTTPS]=tcp
-    [SCTP]=sctp
-    [UDP]=udp
-)
-
-.  $LIB_PATH/openstack_client
+.  `dirname $0`/utils.sh
 
 fetch_security_group_rules ()
 {
@@ -67,72 +51,6 @@ get_member_port_uuid_by_address ()
         $SCRATCH_AREA/ports.json
 }
 
-mkdir -p $SCRATCH_AREA/{results,ports,loadbalancers,pools,listeners}
-
-echo -n "INFO: pre-fetching information..."
-
-# Get all ports
-echo -n "[ports]"
-openstack_port_list > $SCRATCH_AREA/ports.json &
-
-# Get all LBs and allow single loadbalancer override
-echo -n "[loadbalancers]"
-if [ -n "$LOADBALANCER" ]; then
-    # check that it exists
-    openstack_loadbalancer_show $LOADBALANCER > $SCRATCH_AREA/loadbalancer_show
-    if [[ `jq .faultcode $SCRATCH_AREA/loadbalancer_show` != null ]]; then
-        message="`jq .faultstring $SCRATCH_AREA/loadbalancer_show`"
-        wait
-        echo -e "\nERROR: $message"
-        exit 1
-    fi
-    echo "$LOADBALANCER" > $SCRATCH_AREA/loadbalancer_list
-else
-    openstack_loadbalancer_list > $SCRATCH_AREA/loadbalancers.json &
-fi
-
-echo -n "[listeners]"
-openstack_loadbalancer_listener_list ${LOADBALANCER:-} > $SCRATCH_AREA/listeners.json &
-
-echo -n "[pools]"
-openstack_loadbalancer_pool_list ${LOADBALANCER:-} > $SCRATCH_AREA/pools.json &
-wait
-
-if ! [ -e "$SCRATCH_AREA/loadbalancer_list" ]; then
-    jq -r '.loadbalancers[].id' $SCRATCH_AREA/loadbalancers.json > $SCRATCH_AREA/loadbalancer_list
-fi
-
-# Get members and per-lb listeners
-echo -n "[members]"
-while read -r lb; do
-    mkdir -p $SCRATCH_AREA/loadbalancers/$lb/pools
-    for pool in `jq -r ".pools[]| select(.loadbalancers[]| select(.id==\"$lb\"))| .id" $SCRATCH_AREA/pools.json`; do
-        mkdir -p $SCRATCH_AREA/loadbalancers/$lb/pools/$pool
-        mkdir -p $SCRATCH_AREA/loadbalancers/$lb/listeners
-        for id in `jq -r ".listeners[]| select(.loadbalancers[]| select(.id==\"$lb\"))| \
-                                        select(.default_pool_id==\"$pool\")| .id" $SCRATCH_AREA/listeners.json`; do
-            mkdir -p $SCRATCH_AREA/loadbalancers/$lb/listeners/$id
-            listener="`jq -r \".listeners[]| select(.id==\\\"$id\\\")\" $SCRATCH_AREA/listeners.json`"
-            echo $listener| jq -r '.protocol' > $SCRATCH_AREA/loadbalancers/$lb/listeners/$id/protocol
-            echo $listener| jq -r '.protocol_port' > $SCRATCH_AREA/loadbalancers/$lb/listeners/$id/port
-        done
-
-        mkdir -p $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members
-        openstack_loadbalancer_member_list $pool > $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members.json
-        for id in `jq -r '.members[].id' $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members.json`; do
-            mkdir -p $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$id
-            member="`jq -r \".members[]| select(.id==\\\"$id\\\")\" $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members.json`"
-            echo $member| jq -r '.address' > $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$id/address
-            echo $member| jq -r '.subnet_id' > $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$id/subnet_id
-            echo $member| jq -r '.project_id' > $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$id/project_id
-            echo $member| jq -r '.protocol_port' > $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members/$id/protocol_port
-        done
-    done
-done < $SCRATCH_AREA/loadbalancer_list
-wait
-
-echo ""
-
 # keep a records of what has been checked
 declare -A stats=(
     [loadbalancers]=0
@@ -140,7 +58,7 @@ declare -A stats=(
 )
 
 # Run checks
-echo "INFO: checking loadbalancers '`cat $SCRATCH_AREA/loadbalancer_list| tr -s '\n' ' '| sed -r 's/\s+$//g'`'"
+echo "INFO: checking loadbalancer(s) '`cat $SCRATCH_AREA/loadbalancer_list| tr -s '\n' ' '| sed -r 's/\s+$//g'`'"
 while read -r lb; do
     ((stats[loadbalancers]+=1))
     mkdir -p $SCRATCH_AREA/results/$lb

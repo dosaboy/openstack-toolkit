@@ -1,7 +1,9 @@
 #!/bin/bash -u
 export LIB_PATH=$(dirname $0)/../lib
-OPT_ENSURE_LB_MEMBER_SG_RULES=true  # default to true since we have no other checks yet
+OPT_ENSURE_LB_MEMBER_SG_RULES=false
 ARG_ENSURE_LB_MEMBER_SG_RULES=
+OPT_CREATE_LB_MONITOR_MAP=false
+ARG_CREATE_LB_MONITOR_MAP=
 ARG_TMP=
 
 usage ()
@@ -20,6 +22,10 @@ OPTIONS
         Check all members of loadbalancers to ensure that their corresponding instances are using a port with a security group that allows access for loadbalanced packets. If a loadbalancer uuid is provided it will be checked otherwise all loadbalancers will be checked.
 
         NOTE: this is currently the default.
+
+    --create-lb-monitor-map [loadbalancer]
+
+        Create a map of monitors used by LB resources along with their state.
 
     AGENT:
 
@@ -47,6 +53,14 @@ while (($#)); do
                   shift
               fi
               ;;
+        --create-lb-monitor-map)
+              use_default=false
+              OPT_CREATE_LB_MONITOR_MAP=true
+              if (($#>1)) && [[ ${2:0:2} != "--" ]]; then
+                  ARG_CREATE_LB_MONITOR_MAP=$2
+                  shift
+              fi
+              ;;
         --help|-h)
               usage
               exit 0
@@ -69,6 +83,11 @@ if $OPT_ENSURE_LB_MEMBER_SG_RULES || $use_default; then
         ARG_ENSURE_LB_MEMBER_SG_RULES=$ARG_TMP
     fi
     $api_plugins/ensure_member_security_groups $ARG_ENSURE_LB_MEMBER_SG_RULES
+elif $OPT_CREATE_LB_MONITOR_MAP; then
+    if [[ -z $ARG_CREATE_LB_MONITOR_MAP ]] && [[ -n $ARG_TMP ]]; then
+        ARG_CREATE_LB_MONITOR_MAP=$ARG_TMP
+    fi
+    $api_plugins/create_lb_monitor_map $ARG_CREATE_LB_MONITOR_MAP
 else
     usage
 fi

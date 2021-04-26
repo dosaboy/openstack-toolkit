@@ -1,0 +1,75 @@
+#!/bin/bash -u
+#
+# Display tree representation of a loadbalancer, its associated resources and
+# any health monitor resources and state associated with them.
+#
+.  `dirname $0`/utils.sh
+
+mkdir $SCRATCH_AREA/map
+
+# Run checks
+echo "INFO: create monitor map for loadbalancer(s) '`cat $SCRATCH_AREA/loadbalancer_list| tr -s '\n' ' '| sed -r 's/\s+$//g'`'"
+while read -r lb; do
+    mkdir -p $SCRATCH_AREA/map/loadbalancers/$lb/listeners/
+    openstack_loadbalancer_show $lb > $SCRATCH_AREA/loadbalancers/$lb/show
+    status="`jq -r \".loadbalancer.operating_status\" $SCRATCH_AREA/loadbalancers/$lb/show`"
+    mkdir $SCRATCH_AREA/map/loadbalancers/$lb/operating_status
+    touch $SCRATCH_AREA/map/loadbalancers/$lb/operating_status/$status
+
+    for listener in `ls $SCRATCH_AREA/loadbalancers/$lb/listeners`; do
+        mkdir -p $SCRATCH_AREA/map/loadbalancers/$lb/listeners/$listener/operating_status
+        status="`cat $SCRATCH_AREA/loadbalancers/$lb/listeners/$listener/operating_status`"
+        touch $SCRATCH_AREA/map/loadbalancers/$lb/listeners/$listener/operating_status/$status
+    done
+
+    for pool in `ls $SCRATCH_AREA/loadbalancers/$lb/pools`; do
+        mkdir -p $SCRATCH_AREA/map/loadbalancers/$lb/pools/$pool
+        pool_path=$SCRATCH_AREA/map/loadbalancers/$lb/pools
+        pool_hm_id=`jq -r ".pools[]| select(.loadbalancers[]| select(.id==\"$lb\"))| .healthmonitor_id" $SCRATCH_AREA/pools.json`
+        if ! [[ -d $SCRATCH_AREA/map/healthmonitors/$pool_hm_id ]]; then
+            hm="`jq \".healthmonitors[]| select(.id==\\\"$pool_hm_id\\\")\" $SCRATCH_AREA/healthmonitors.json`"
+            if [[ -n "$hm" ]]; then
+                mkdir -p $SCRATCH_AREA/map/healthmonitors/$pool_hm_id
+                declare -a hm_keys=(
+                    operating_status
+                    timeout
+                    type
+                    url_path
+                    max_retries
+                    admin_state_up
+                    delay
+                    expected_codes
+                    http_method
+                )
+                for key in ${hm_keys[@]}; do
+                    value=`echo $hm| jq -r ".$key"`
+                    mkdir -p $SCRATCH_AREA/map/healthmonitors/$pool_hm_id/$key/$value
+                done
+            fi
+        fi
+
+        ln -s ../../../../healthmonitors/$pool_hm_id $pool_path/$pool/healthmonitor_id
+        for member_uuid in `ls $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members`; do
+            # https://docs.openstack.org/api-ref/load-balancer/v2/?expanded=list-pools-detail,show-member-details-detail#op-status
+            member="`jq -r \".members[]| select(.id==\\\"$id\\\")\" $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members.json`"
+            mkdir -p $SCRATCH_AREA/map/loadbalancers/$lb/pools/$pool/members/$member_uuid
+            operating_status=`echo $member| jq -r '.operating_status'`
+            if ! [[ $operating_status == "NO_MONITOR" ]]; then
+                monitor_address=`echo $member| jq -r '.monitor_address'`
+                monitor_port=`echo $member| jq -r '.monitor_port'`
+                # if ^^ are null the member defaults to use the following:
+                member_address=`echo $member| jq -r '.address'`
+                member_port=`echo $member| jq -r '.protocol_port'`
+                mkdir -p $SCRATCH_AREA/map/loadbalancers/$lb/pools/$pool/members/$member_uuid/{address,port,monitor_address,monitor_port}
+                # null means use member address
+                touch $SCRATCH_AREA/map/loadbalancers/$lb/pools/$pool/members/$member_uuid/monitor_address/$monitor_address
+                touch $SCRATCH_AREA/map/loadbalancers/$lb/pools/$pool/members/$member_uuid/monitor_port/$monitor_port
+                touch $SCRATCH_AREA/map/loadbalancers/$lb/pools/$pool/members/$member_uuid/address/$member_address
+                touch $SCRATCH_AREA/map/loadbalancers/$lb/pools/$pool/members/$member_uuid/port/$member_port
+            fi
+        done
+    done
+done < $SCRATCH_AREA/loadbalancer_list
+
+echo ""
+tree $SCRATCH_AREA/map

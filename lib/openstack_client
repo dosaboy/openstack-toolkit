@@ -214,6 +214,11 @@ openstack_loadbalancer_listener_list ()
     curl -s $OCTAVIA_EP/v2.0/lbaas/listeners -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
 }
 
+openstack_loadbalancer_healthmonitor_list ()
+{
+    curl -s $OCTAVIA_EP/v2.0/lbaas/healthmonitors -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+}
+
 openstack_loadbalancer_member_list ()
 {
     local pool=$1
