@@ -59,10 +59,10 @@ while read -r lb; do
     for pool in `ls $SCRATCH_AREA/loadbalancers/$lb/pools`; do
         pool_path=${map_lb_path}/pools/$pool
         mkdir -p ${pool_path}/protocol
-        protocol=`jq -r ".pools[]| select(.loadbalancers[]| select(.id==\"$lb\"))| .protocol" $SCRATCH_AREA/pools.json`
+        protocol=`jq -r ".pools[]| select(.id==\"$pool\")| .protocol" $SCRATCH_AREA/pools.json`
         touch $pool_path/protocol/$protocol
 
-        pool_hm_id=`jq -r ".pools[]| select(.loadbalancers[]| select(.id==\"$lb\"))| .healthmonitor_id" $SCRATCH_AREA/pools.json`
+        pool_hm_id=`jq -r ".pools[]| select(.id==\"$pool\")| .healthmonitor_id" $SCRATCH_AREA/pools.json`
         get_healthmonitor_info "$pool_hm_id" "$pool_path"
 
         for member_uuid in `ls $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members`; do
