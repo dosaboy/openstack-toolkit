@@ -1,4 +1,5 @@
 #!/bin/bash -u
+export DEBUG=false
 export LIB_PATH=$(dirname $0)/../lib
 OPT_ENSURE_LB_MEMBER_SG_RULES=false
 ARG_ENSURE_LB_MEMBER_SG_RULES=
@@ -60,6 +61,9 @@ while (($#)); do
                   ARG_CREATE_LB_MONITOR_MAP=$2
                   shift
               fi
+              ;;
+        --debug)
+              DEBUG=true
               ;;
         --help|-h)
               usage

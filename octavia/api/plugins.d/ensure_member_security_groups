@@ -3,6 +3,8 @@
 # Scans all Octavia loadbalancers, checks that all member ports' have a security
 # group rule containing a rule that opens the port being loadbalanced.
 #
+$DEBUG && set -x
+
 .  `dirname $0`/utils.sh
 
 fetch_security_group_rules ()
