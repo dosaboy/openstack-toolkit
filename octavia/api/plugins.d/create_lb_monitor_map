@@ -11,6 +11,7 @@ mkdir $SCRATCH_AREA/map
 get_healthmonitor_info ()
 {
     local pool_hm_id=$1
+    local pool_path=$2
 
     if [[ $pool_hm_id == null ]] || [[ -d $SCRATCH_AREA/map/healthmonitors/$pool_hm_id ]]; then
         return
@@ -34,7 +35,7 @@ get_healthmonitor_info ()
             value=`echo $hm| jq -r ".$key"`
             mkdir -p $SCRATCH_AREA/map/healthmonitors/$pool_hm_id/$key/$value
         done
-        ln -s ../../../../healthmonitors/$pool_hm_id $pool_path/$pool/healthmonitor_id
+        ln -s ../../../../healthmonitors/$pool_hm_id $pool_path/healthmonitor_id
     fi
 }
 
@@ -54,10 +55,15 @@ while read -r lb; do
     done
 
     for pool in `ls $SCRATCH_AREA/loadbalancers/$lb/pools`; do
-        mkdir -p $SCRATCH_AREA/map/loadbalancers/$lb/pools/$pool
-        pool_path=$SCRATCH_AREA/map/loadbalancers/$lb/pools
+        pool_path=$SCRATCH_AREA/map/loadbalancers/$lb/pools/$pool
+        mkdir -p $pool_path
+
+        mkdir $pool_path/protocol
+        protocol=`jq -r ".pools[]| select(.loadbalancers[]| select(.id==\"$lb\"))| .protocol" $SCRATCH_AREA/pools.json`
+        touch $pool_path/protocol/$protocol
+
         pool_hm_id=`jq -r ".pools[]| select(.loadbalancers[]| select(.id==\"$lb\"))| .healthmonitor_id" $SCRATCH_AREA/pools.json`
-        get_healthmonitor_info $pool_hm_id
+        get_healthmonitor_info $pool_hm_id $pool_path
 
         for member_uuid in `ls $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members`; do
             # https://docs.openstack.org/api-ref/load-balancer/v2/?expanded=list-pools-detail,show-member-details-detail#op-status
