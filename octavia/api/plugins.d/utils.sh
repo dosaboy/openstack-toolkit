@@ -2,8 +2,7 @@
 SCRATCH_AREA=`mktemp -d`
 master_cleanup ()
 {
-#    rm -rf $SCRATCH_AREA
-    :
+    rm -rf $SCRATCH_AREA
 }
 
 trap master_cleanup KILL INT EXIT
