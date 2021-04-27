@@ -29,6 +29,7 @@ parts:
       - ipcalc
       - jq
       - curl
+      - tree
   openstackclients:
     plugin: python
     python-version: python3
