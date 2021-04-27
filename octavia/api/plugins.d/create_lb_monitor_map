@@ -26,7 +26,7 @@ while read -r lb; do
         mkdir -p $SCRATCH_AREA/map/loadbalancers/$lb/pools/$pool
         pool_path=$SCRATCH_AREA/map/loadbalancers/$lb/pools
         pool_hm_id=`jq -r ".pools[]| select(.loadbalancers[]| select(.id==\"$lb\"))| .healthmonitor_id" $SCRATCH_AREA/pools.json`
-        if ! [[ -d $SCRATCH_AREA/map/healthmonitors/$pool_hm_id ]]; then
+        if ! [[ $pool_hm_id == null ]] && ! [[ -d $SCRATCH_AREA/map/healthmonitors/$pool_hm_id ]]; then
             hm="`jq \".healthmonitors[]| select(.id==\\\"$pool_hm_id\\\")\" $SCRATCH_AREA/healthmonitors.json`"
             if [[ -n "$hm" ]]; then
                 mkdir -p $SCRATCH_AREA/map/healthmonitors/$pool_hm_id
@@ -46,14 +46,20 @@ while read -r lb; do
                     mkdir -p $SCRATCH_AREA/map/healthmonitors/$pool_hm_id/$key/$value
                 done
             fi
+            ln -s ../../../../healthmonitors/$pool_hm_id $pool_path/$pool/healthmonitor_id
         fi
 
-        ln -s ../../../../healthmonitors/$pool_hm_id $pool_path/$pool/healthmonitor_id
         for member_uuid in `ls $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members`; do
             # https://docs.openstack.org/api-ref/load-balancer/v2/?expanded=list-pools-detail,show-member-details-detail#op-status
-            member="`jq -r \".members[]| select(.id==\\\"$id\\\")\" $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members.json`"
+            member="`jq -r \".members[]| select(.id==\\\"$member_uuid\\\")\" $SCRATCH_AREA/loadbalancers/$lb/pools/$pool/members.json`"
+            if [[ -z $member ]]; then
+                echo "WARNING: failed to retrieve info for member $member_uuid"
+                continue
+            fi
             mkdir -p $SCRATCH_AREA/map/loadbalancers/$lb/pools/$pool/members/$member_uuid
             operating_status=`echo $member| jq -r '.operating_status'`
+            mkdir -p $SCRATCH_AREA/map/loadbalancers/$lb/pools/$pool/members/$member_uuid/operating_status
+            touch $SCRATCH_AREA/map/loadbalancers/$lb/pools/$pool/members/$member_uuid/operating_status/$operating_status
             if ! [[ $operating_status == "NO_MONITOR" ]]; then
                 monitor_address=`echo $member| jq -r '.monitor_address'`
                 monitor_port=`echo $member| jq -r '.monitor_port'`

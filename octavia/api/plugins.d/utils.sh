@@ -62,9 +62,9 @@ fi
 echo -n "[members]"
 while read -r lb; do
     mkdir -p $SCRATCH_AREA/loadbalancers/$lb/pools
+    mkdir -p $SCRATCH_AREA/loadbalancers/$lb/listeners
     for pool in `jq -r ".pools[]| select(.loadbalancers[]| select(.id==\"$lb\"))| .id" $SCRATCH_AREA/pools.json`; do
         mkdir -p $SCRATCH_AREA/loadbalancers/$lb/pools/$pool
-        mkdir -p $SCRATCH_AREA/loadbalancers/$lb/listeners
         for id in `jq -r ".listeners[]| select(.loadbalancers[]| select(.id==\"$lb\"))| \
                                         select(.default_pool_id==\"$pool\")| .id" $SCRATCH_AREA/listeners.json`; do
             mkdir -p $SCRATCH_AREA/loadbalancers/$lb/listeners/$id
