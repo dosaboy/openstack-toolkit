@@ -1,0 +1,20 @@
+#!/bin/bash -eux
+
+OUTPUT_DIR=${OSREPORT_OUTPUT_DIR}/neutron_info
+mkdir -p ${OUTPUT_DIR}
+
+PORTS_OUTPUT_DIR=${OUTPUT_DIR}/ports
+mkdir -p ${PORTS_OUTPUT_DIR}
+openstack port list > ${PORTS_OUTPUT_DIR}/list
+for i in $(openstack port list -c ID -f value); do
+    mkdir -p ${PORTS_OUTPUT_DIR}/${i}
+    openstack port show ${i} > ${PORTS_OUTPUT_DIR}/${i}/info
+done
+
+AGENTS_OUTPUT_DIR=${OUTPUT_DIR}/agents
+mkdir -p ${AGENTS_OUTPUT_DIR}
+openstack network agent list > ${AGENTS_OUTPUT_DIR}/list
+for i in $(openstack network agent list -c ID -f value); do
+    mkdir -p ${AGENTS_OUTPUT_DIR}/${i}
+    openstack network agent show ${i} > ${AGENTS_OUTPUT_DIR}/${i}/info
+done

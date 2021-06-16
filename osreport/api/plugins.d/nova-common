@@ -1,0 +1,27 @@
+#!/bin/bash -eu
+
+# Depends-on neutron
+
+OUTPUT_DIR=${OSREPORT_OUTPUT_DIR}/nova_info
+mkdir -p ${OUTPUT_DIR}
+
+SERVERS_OUTPUT_DIR=${OUTPUT_DIR}/servers
+mkdir -p ${SERVERS_OUTPUT_DIR}
+openstack server list > ${SERVERS_OUTPUT_DIR}/list
+for i in $(openstack server list -c ID -f value); do
+    mkdir -p ${SERVERS_OUTPUT_DIR}/${i}
+    openstack server show ${i} > ${OUTPUT_DIR}/servers/${i}/info
+    mkdir -p  ${SERVERS_OUTPUT_DIR}/${i}/ports
+    openstack port list --server ${i} > ${OUTPUT_DIR}/servers/${i}/ports/list
+    for j in $(openstack port list --server ${i} -c ID -f value); do
+        ln -rs ${OSREPORT_OUTPUT_DIR}/neutron_info/ports/${j}/ ${OUTPUT_DIR}/servers/${i}/ports/${j}
+    done
+done
+
+AGENTS_OUTPUT_DIR=${OUTPUT_DIR}/agents
+mkdir -p ${AGENTS_OUTPUT_DIR}
+openstack port list > ${AGENTS_OUTPUT_DIR}/list
+for i in $(openstack port list -c ID -f value); do
+    mkdir -p ${AGENTS_OUTPUT_DIR}/${i}
+    openstack port show ${i} > ${AGENTS_OUTPUT_DIR}/${i}/info
+done
