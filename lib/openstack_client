@@ -8,6 +8,17 @@ json_key_exists ()
     return 0
 }
 
+os_curl ()
+{
+    local url=$1
+    shift
+    local cacert_arg=
+    if [ -n "$OS_CACERT" ] ; then
+        cacert_arg="--cacert $OS_CACERT"
+    fi
+    curl "$cacert_arg" -s -H "X-Auth-Token: $OS_TOKEN" "$@" "$url"
+}
+
 get_endpoint ()
 {
     local name=$1
@@ -16,9 +27,9 @@ get_endpoint ()
     local eps=
     local ep=
 
-    svcs=`curl -s -H "X-Auth-Token: $OS_TOKEN" $AUTH_URL/services`
+    svcs=`os_curl $AUTH_URL/services`
     if json_key_exists error $svcs; then
-        svcs=`curl -s -H "X-Auth-Token: $OS_TOKEN" $AUTH_URL/OS-KSADM/services`
+        svcs=`os_curl $AUTH_URL/OS-KSADM/services`
     fi
 
     for key in services OS-KSADM:services; do
@@ -28,7 +39,7 @@ get_endpoint ()
         fi
     done
 
-    eps=`curl -s -H "X-Auth-Token: $OS_TOKEN" $AUTH_URL/endpoints`
+    eps=`os_curl $AUTH_URL/endpoints`
     for interface in admin internal public; do
         url=`echo "$eps"| jq -r ".endpoints[]| select(.service_id==\"$svc\")| select(.interface==\"$interface\")| .url"`
         [ -z "$url" ] || break
@@ -80,9 +91,9 @@ openstack_server_list_long ()
     local output_tmp=`mktemp`
 
     if [[ -z "$marker" ]]; then
-        curl -s "$NOVA_EP/servers/detail?all_tenants=True" -H "X-OpenStack-Nova-API-Version: 2.40" -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"| tee $output_tmp
+        os_curl "$NOVA_EP/servers/detail?all_tenants=True" -H "X-OpenStack-Nova-API-Version: 2.40" | tee $output_tmp
     else
-        curl -s "$NOVA_EP/servers/detail?all_tenants=True&marker=$marker" -H "X-OpenStack-Nova-API-Version: 2.40" -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"| tee $output_tmp
+        os_curl "$NOVA_EP/servers/detail?all_tenants=True&marker=$marker" -H "X-OpenStack-Nova-API-Version: 2.40" | tee $output_tmp
     fi
 
     new_marker=`jq -r .servers[].id $output_tmp| tail -n 1`
@@ -101,7 +112,7 @@ openstack_server_list ()
 
 openstack_compute_service_list ()
 {
-    curl -s $NOVA_EP/os-services -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+    os_curl $NOVA_EP/os-services
 }
 
 
@@ -109,7 +120,7 @@ openstack_compute_service_list ()
 
 openstack_network_agent_list ()
 {
-    curl -s $NEUTRON_EP/v2.0/agents -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+    os_curl $NEUTRON_EP/v2.0/agents
 }
 
 openstack_port_list ()
@@ -117,9 +128,9 @@ openstack_port_list ()
     local device_id=${1:-""}
 
     if [[ -n $device_id ]]; then
-        curl -s $NEUTRON_EP/v2.0/ports?device_id=$device_id -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+        os_curl $NEUTRON_EP/v2.0/ports?device_id=$device_id
     else
-        curl -s $NEUTRON_EP/v2.0/ports -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+        os_curl $NEUTRON_EP/v2.0/ports
     fi
 }
 
@@ -128,56 +139,56 @@ openstack_router_list ()
     local router_id=${1:-""}
     
     if [[ -n $router_id ]]; then
-        curl -s $NEUTRON_EP/v2.0/routers?id=$router_id -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+        os_curl $NEUTRON_EP/v2.0/routers?id=$router_id
     else
-        curl -s $NEUTRON_EP/v2.0/routers -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+        os_curl $NEUTRON_EP/v2.0/routers
     fi
 }
 
 openstack_router_show ()
 {
     local router_id=$1
-    curl -s $NEUTRON_EP/v2.0/routers/$router_id -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+    os_curl $NEUTRON_EP/v2.0/routers/$router_id
 }
 
 openstack_router_l3agent_list ()
 {
     local router_id=$1
-    curl -s $NEUTRON_EP/v2.0/routers/$router_id/l3-agents -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+    os_curl $NEUTRON_EP/v2.0/routers/$router_id/l3-agents
 }
 
 openstack_port_show ()
 {
     local uuid=$1
-    curl -s $NEUTRON_EP/v2.0/ports/$uuid -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+    os_curl $NEUTRON_EP/v2.0/ports/$uuid
 }
 
 openstack_network_show ()
 {
     local uuid=$1
-    curl -s $NEUTRON_EP/v2.0/networks/$uuid -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+    os_curl $NEUTRON_EP/v2.0/networks/$uuid
 }
 
 openstack_subnet_show ()
 {
     local uuid=$1
-    curl -s $NEUTRON_EP/v2.0/subnets/$uuid -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+    os_curl $NEUTRON_EP/v2.0/subnets/$uuid
 }
 
 openstack_security_group_rule_list ()
 {
     local uuid=${1:-}
     if [[ -n "$uuid" ]]; then
-        curl -s $NEUTRON_EP/v2.0/security-group-rules?security_group_id=$uuid -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+        os_curl $NEUTRON_EP/v2.0/security-group-rules?security_group_id=$uuid
         return
     fi
-    curl -s $NEUTRON_EP/v2.0/security-group-rules -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+    os_curl $NEUTRON_EP/v2.0/security-group-rules
 }
 
 openstack_security_group_rule_show ()
 {
     local uuid=$1
-    curl -s $NEUTRON_EP/v2.0/security-group-rules/$uuid -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+    os_curl $NEUTRON_EP/v2.0/security-group-rules/$uuid
 }
 
 
@@ -185,55 +196,55 @@ openstack_security_group_rule_show ()
 
 openstack_loadbalancer_list ()
 {
-    curl -s $OCTAVIA_EP/v2.0/lbaas/loadbalancers -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+    os_curl $OCTAVIA_EP/v2.0/lbaas/loadbalancers
 }
 
 openstack_loadbalancer_show ()
 {
     local uuid=${1:-}
-    curl -s $OCTAVIA_EP/v2.0/lbaas/loadbalancers/$uuid -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+    os_curl $OCTAVIA_EP/v2.0/lbaas/loadbalancers/$uuid
 }
 
 openstack_loadbalancer_pool_list ()
 {
     local loadbalancer=${1:-}
     if [[ -n "$loadbalancer" ]]; then
-        curl -s $OCTAVIA_EP/v2.0/lbaas/pools?loadbalancer_id=$loadbalancer -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+        os_curl $OCTAVIA_EP/v2.0/lbaas/pools?loadbalancer_id=$loadbalancer
         return
     fi
-    curl -s $OCTAVIA_EP/v2.0/lbaas/pools -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+    os_curl $OCTAVIA_EP/v2.0/lbaas/pools
 }
 
 openstack_loadbalancer_listener_list ()
 {
     local loadbalancer=${1:-}
     if [[ -n "$loadbalancer" ]]; then
-        curl -s $OCTAVIA_EP/v2.0/lbaas/listeners?loadbalancer_id=$loadbalancer -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+        os_curl $OCTAVIA_EP/v2.0/lbaas/listeners?loadbalancer_id=$loadbalancer
         return        
     fi
-    curl -s $OCTAVIA_EP/v2.0/lbaas/listeners -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+    os_curl $OCTAVIA_EP/v2.0/lbaas/listeners
 }
 
 openstack_loadbalancer_healthmonitor_list ()
 {
-    curl -s $OCTAVIA_EP/v2.0/lbaas/healthmonitors -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+    os_curl $OCTAVIA_EP/v2.0/lbaas/healthmonitors
 }
 
 openstack_loadbalancer_member_list ()
 {
     local pool=$1
-    curl -s $OCTAVIA_EP/v2.0/lbaas/pools/$pool/members -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"    
+    os_curl $OCTAVIA_EP/v2.0/lbaas/pools/$pool/members
 }
 
 openstack_loadbalancer_listener_show ()
 {
     local uuid=$1
-    curl -s $OCTAVIA_EP/v2.0/lbaas/listeners/$uuid -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"
+    os_curl $OCTAVIA_EP/v2.0/lbaas/listeners/$uuid
 }
 
 openstack_loadbalancer_member_show ()
 {
     local uuid=$1
-    curl -s $OCTAVIA_EP/v2.0/lbaas/members/$uuid -H "Accept: application/json" -H "X-Auth-Token: $OS_TOKEN"    
+    os_curl $OCTAVIA_EP/v2.0/lbaas/members/$uuid
 }
 
