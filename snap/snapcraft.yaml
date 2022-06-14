@@ -34,8 +34,6 @@ parts:
     plugin: python
     python-packages:
       - openstackclient
-    constraints:
-      - https://raw.githubusercontent.com/openstack/requirements/stable/ussuri/upper-constraints.txt
     build-packages:
       - libffi-dev
       - libssl-dev
