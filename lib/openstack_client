@@ -13,7 +13,7 @@ os_curl ()
     local url=$1
     shift
     local cacert_arg=
-    if [ -n "$OS_CACERT" ] ; then
+    if [[ -n ${OS_CACERT:""} ]] ; then
         cacert_arg="--cacert $OS_CACERT"
     fi
     curl "$cacert_arg" -s -H "X-Auth-Token: $OS_TOKEN" "$@" "$url"
