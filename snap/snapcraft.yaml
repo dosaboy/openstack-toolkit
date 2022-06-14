@@ -5,7 +5,7 @@ description:
   Set of tools to help debugging Openstack problems.
 confinement: strict 
 grade: stable
-base: core18
+base: core20
 environment:
   TMPDIR: $SNAP_COMMON/tmp
   REQUESTS_CA_BUNDLE: /etc/ssl/certs/ca-certificates.crt  # need this due to pip python-certifi used by python-openstackclient
@@ -35,7 +35,8 @@ parts:
     python-version: python3
     python-packages:
       - python-openstackclient
-    constraints: https://raw.githubusercontent.com/openstack/requirements/stable/ussuri/upper-constraints.txt
+    constraints:
+      - https://raw.githubusercontent.com/openstack/requirements/stable/ussuri/upper-constraints.txt
     build-packages:
       - libffi-dev
       - libssl-dev

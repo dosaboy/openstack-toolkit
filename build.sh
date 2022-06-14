@@ -1,4 +1,4 @@
 #!/bin/bash -eux
 
-snapcraft clean
-snapcraft
+snapcraft clean --destructive-mode
+snapcraft --destructive-mode
