@@ -32,9 +32,8 @@ parts:
       - tree
   openstackclients:
     plugin: python
-    python-version: python3
     python-packages:
-      - python-openstackclient
+      - openstackclient
     constraints:
       - https://raw.githubusercontent.com/openstack/requirements/stable/ussuri/upper-constraints.txt
     build-packages:
