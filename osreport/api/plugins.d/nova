@@ -1,0 +1,3 @@
+#!/bin/bash -eu
+
+# Basic nova information already collected in the nova-common module

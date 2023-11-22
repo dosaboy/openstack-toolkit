@@ -1,0 +1,25 @@
+#!/bin/bash -eu
+
+OUTPUT_DIR=${OSREPORT_OUTPUT_DIR}/nova-hypervisors_info
+mkdir -p ${OUTPUT_DIR}
+
+HYPERVISORS_OUTPUT_DIR=${OUTPUT_DIR}/hypervisors
+mkdir -p ${HYPERVISORS_OUTPUT_DIR}
+openstack hypervisor list > ${HYPERVISORS_OUTPUT_DIR}/list
+for i in $(openstack hypervisor list -c 'Hypervisor Hostname' -f value); do
+    mkdir -p ${HYPERVISORS_OUTPUT_DIR}/${i}
+    openstack hypervisor show ${i} > ${HYPERVISORS_OUTPUT_DIR}/${i}/info
+    mkdir -p ${HYPERVISORS_OUTPUT_DIR}/${i}/servers
+    openstack server list --all-projects --host ${i} > ${HYPERVISORS_OUTPUT_DIR}/${i}/servers/list
+    for j in $(openstack server list --all-projects --host ${i} -c ID -f value); do
+        ln -rs ${OSREPORT_OUTPUT_DIR}/nova_info/servers/${j} ${HYPERVISORS_OUTPUT_DIR}/${i}/servers/${j}
+    done
+
+    mkdir -p ${HYPERVISORS_OUTPUT_DIR}/${i}/agents/network
+    openstack network agent list --host ${i} > ${HYPERVISORS_OUTPUT_DIR}/${i}/agents/network/list
+
+    for j in $(openstack network agent list -c ID -f value); do
+        ln -rs ${OSREPORT_OUTPUT_DIR}/neutron_info/agents/${j} ${HYPERVISORS_OUTPUT_DIR}/${i}/agents/network/${j}
+    done
+done
+
