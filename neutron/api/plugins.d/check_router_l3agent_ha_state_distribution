@@ -27,12 +27,17 @@ echo "done."
 
 echo " * found `jq -r '.routers| length' $SCRATCH_AREA/routers.json` routers"
 
-mkdir -p $SCRATCH_AREA/hosts/
-for router_id in `jq -r '.routers[]| select(.ha==true)| select(.admin_state_up==true)| .id' $SCRATCH_AREA/routers.json`; do
-    mkdir -p $SCRATCH_AREA/$router_id
-    (
+get_info ()
+{
+    local router_id=$1
+
     openstack_router_l3agent_list $router_id > $SCRATCH_AREA/$router_id/l3agents.json
-    readarray -t hosts <<<`jq -r '.agents[]| select(.ha_state=="active")| .host' $SCRATCH_AREA/$router_id/l3agents.json`
+    if ! [[ -s $SCRATCH_AREA/$router_id/l3agents.json ]]; then
+       echo "WARNING: failed to get l3agent info for router $router_id"
+       return
+    fi
+
+    readarray -t hosts <<<`jq -r 'try .agents[]| select(.ha_state=="active")| .host' $SCRATCH_AREA/$router_id/l3agents.json`
     if ((${#hosts[@]})) && [ -n "${hosts[0]}" ]; then
         for host in ${hosts[@]}; do
             mkdir -p $SCRATCH_AREA/hosts/$host/active
@@ -40,14 +45,19 @@ for router_id in `jq -r '.routers[]| select(.ha==true)| select(.admin_state_up==
         done
     fi
 
-    readarray -t hosts <<<`jq -r '.agents[]| select(.ha_state=="standby")| .host' $SCRATCH_AREA/$router_id/l3agents.json`
+    readarray -t hosts <<<`jq -r 'try .agents[]| select(.ha_state=="standby")| .host' $SCRATCH_AREA/$router_id/l3agents.json`
     if ((${#hosts[@]})) && [ -n "${hosts[0]}" ]; then
         for host in ${hosts[@]}; do
             mkdir -p $SCRATCH_AREA/hosts/$host/standby
             ln -s ../../../$router_id $SCRATCH_AREA/hosts/$host/standby
         done
     fi
-    ) &
+}
+
+mkdir -p $SCRATCH_AREA/hosts/
+for router_id in `jq -r '.routers[]| select(.ha==true)| select(.admin_state_up==true)| .id' $SCRATCH_AREA/routers.json`; do
+    mkdir -p $SCRATCH_AREA/$router_id
+    get_info $router_id &
 done
 wait
 
