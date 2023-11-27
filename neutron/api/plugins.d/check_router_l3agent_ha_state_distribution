@@ -37,6 +37,14 @@ get_info ()
        return
     fi
 
+    readarray -t hosts <<<`jq -r 'try .agents[]| select(.ha_state=="unknown")| .host' $SCRATCH_AREA/$router_id/l3agents.json`
+    if ((${#hosts[@]})) && [ -n "${hosts[0]}" ]; then
+        for host in ${hosts[@]}; do
+            mkdir -p $SCRATCH_AREA/hosts/$host/unknown
+            ln -s ../../../$router_id $SCRATCH_AREA/hosts/$host/unknown
+        done
+    fi
+
     readarray -t hosts <<<`jq -r 'try .agents[]| select(.ha_state=="active")| .host' $SCRATCH_AREA/$router_id/l3agents.json`
     if ((${#hosts[@]})) && [ -n "${hosts[0]}" ]; then
         for host in ${hosts[@]}; do
@@ -55,19 +63,27 @@ get_info ()
 }
 
 mkdir -p $SCRATCH_AREA/hosts/
+jobs=0
 for router_id in `jq -r '.routers[]| select(.ha==true)| select(.admin_state_up==true)| .id' $SCRATCH_AREA/routers.json`; do
     mkdir -p $SCRATCH_AREA/$router_id
     get_info $router_id &
+    ((jobs++))
+    if ! ((jobs % 50)); then
+        wait  # throttle api requests 
+        jobs=0
+    fi
 done
 wait
 
 echo -e "\nResults:"
 (
-echo "| Host | Active | Standby |"
+echo "| Host | Active | Standby | Unknown | Total |"
 for host in `ls $SCRATCH_AREA/hosts`; do
     active=`ls $SCRATCH_AREA/hosts/$host/active 2>/dev/null| wc -l`
     standby=`ls $SCRATCH_AREA/hosts/$host/standby 2>/dev/null| wc -l`
-    echo "| $host | $active | $standby |"
+    unknown=`ls $SCRATCH_AREA/hosts/$host/unknown 2>/dev/null| wc -l`
+    total=$((active + standby + unknown))
+    echo "| $host | $active | $standby | $unknown | $total |"
 done
 ) | column -t > $SCRATCH_AREA/results
 prettytable $SCRATCH_AREA/results
