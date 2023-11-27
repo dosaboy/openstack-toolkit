@@ -80,6 +80,10 @@ while (($#)); do
                   shift
               fi
               ;;
+        --debug)
+              PS4='+(${BASH_SOURCE##*/}:${LINENO}) ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
+              set -x
+              ;;
         --help|-h)
               usage
               exit 0
@@ -103,7 +107,7 @@ if $OPT_CHECK_ROUTER_L3HA_STATUS || $use_default; then
     fi
     $api_plugins/check_router_l3agent_ha_status $ARG_CHECK_ROUTER_L3HA_STATUS
 elif $OPT_CHECK_ROUTER_L3HA_STATE_DIST; then
-    $api_plugins/check_router_l3agent_ha_state_distribution
+    . $api_plugins/check_router_l3agent_ha_state_distribution
 elif $OPT_DISCOVER_LP1891673; then
     $agent_plugins/discover_ip_rules_affected_by_lp1891673
 elif $OPT_GET_L2POP_MAP; then
